@@ -715,7 +715,8 @@ import termios
 
 LASER_MAX_ON_SEC = 60          # 最长连续出光时间(秒), 到点自动关光
 LASER_DEV_DEFAULT = "/dev/ir_laser"
-_laser = {"fd": None, "dev": None, "on": False, "on_since": 0, "last": {}}
+_laser = {"fd": None, "dev": None, "on": False, "on_since": 0, "last": {},
+          "replied": None}   # replied: 最近一次下发是否读到设备应答(None=尚无记录)
 
 
 def _pelco(cmd1, cmd2, d1=0, d2=0, addr=1):
@@ -747,8 +748,17 @@ def laser_open(dev=LASER_DEV_DEFAULT):
             return False, f"打开串口失败: {e}"
 
 
-def laser_send(cmd1, cmd2, d1=0, d2=0, read_ms=250):
-    """发送一帧并尝试读回应答(读回失败不影响下发)"""
+def laser_send(cmd1, cmd2, d1=0, d2=0, read_ms=300):
+    """发送一帧并**闭环读回应答**。
+
+    返回 (ok, msg, resp_hex):
+      - 串口未打开 / 写入失败            -> ok=False;
+      - 写入成功但 read_ms 内无任何回读数据 -> ok=False, msg="无应答(...)", resp=""
+        (用于前端提示: 激光器可能断电/未接线, 指令实际未生效);
+      - 收到任意回读数据                  -> ok=True。
+    说明: 串口能被打开并不代表设备在线 —— 设备断电时串口仍在, 但不会有任何回读,
+    因此必须用"是否有返回数据"来闭环判定, 避免显示"看起来执行成功"。
+    """
     with _lock:
         fd = _laser["fd"]
         if fd is None:
@@ -762,6 +772,9 @@ def laser_send(cmd1, cmd2, d1=0, d2=0, read_ms=250):
             resp = os.read(fd, 64)
         except (BlockingIOError, OSError):
             resp = b""
+        _laser["replied"] = bool(resp)
+        if not resp:
+            return False, "无应答(激光器可能断电/未接线/串口异常)", ""
         return True, "ok", resp.hex(" ")
 
 
@@ -812,6 +825,7 @@ def laser_status():
             "exclusive": laser_state()["exclusive"],
             "controllable": laser_state()["controllable"],
             "last": _laser.get("last", {}),
+            "replied": _laser.get("replied"),
         }
     return st
 
@@ -825,13 +839,19 @@ def _do_GET3(self):
     if path == "/api/laser/status":
         return self._json(laser_status())
     if path == "/api/laser/query":
+        # 依次查询: 开关 / 亮度 / 行程位置 / 出光角度 (闭环: 统计是否收到任何应答)
         out = {}
+        replied = False
         for name, (c1, c2) in (("switch", (0x02, 0x01)), ("brightness", (0x02, 0x03)),
                                ("position", (0x02, 0x05)), ("angle", (0x09, 0x01))):
             ok, _, resp = laser_send(c1, c2, 0, 0, read_ms=300)
             out[name] = resp
+            if resp:
+                replied = True
         _laser["last"] = out
-        return self._json({"ok": True, "queries": out})
+        return self._json({"ok": True, "queries": out, "replied": replied,
+                           "detail": "" if replied
+                                     else "无应答(激光器可能断电/未接线)"})
     if path == "/api/laser":
         st = laser_status()
         st["note"] = ("串口空闲, 网关可直控(开光无需二次确认, 不做自动关光; 光斑角度 2°~65°)"
@@ -849,7 +869,14 @@ def _do_POST3(self):
 
     if path == "/api/laser/open":
         ok, msg = laser_open(str(p.get("dev") or LASER_DEV_DEFAULT))
-        return self._json({"ok": ok, "detail": msg})
+        replied = None
+        if ok:
+            # 闭环探测: 串口能打开 ≠ 设备在线, 主动查询一次看是否有回读数据
+            _, _, resp = laser_send(0x02, 0x01, 0, 0, read_ms=300)
+            replied = bool(resp)
+            msg += ("; 设备在线(有应答)" if replied
+                    else "; 串口已开但设备无应答(请检查激光器电源/接线)")
+        return self._json({"ok": ok, "detail": msg, "device_replied": replied})
 
     if path == "/api/laser/close":
         ok, msg = laser_close()
@@ -917,14 +944,19 @@ def _do_POST3(self):
         return self._json({"ok": ok, "detail": msg, "resp": resp})
 
     if path == "/api/laser/query":
-        # 依次查询: 开关 / 亮度 / 行程位置 / 出光角度
+        # 依次查询: 开关 / 亮度 / 行程位置 / 出光角度 (闭环: 统计是否收到任何应答)
         out = {}
+        replied = False
         for name, (c1, c2) in (("switch", (0x02, 0x01)), ("brightness", (0x02, 0x03)),
                                ("position", (0x02, 0x05)), ("angle", (0x09, 0x01))):
             ok, _, resp = laser_send(c1, c2, 0, 0, read_ms=300)
             out[name] = resp
+            if resp:
+                replied = True
         _laser["last"] = out
-        return self._json({"ok": True, "queries": out})
+        return self._json({"ok": True, "queries": out, "replied": replied,
+                           "detail": "" if replied
+                                     else "无应答(激光器可能断电/未接线)"})
 
     return self._json({"ok": False, "detail": "unknown laser api"}, 404)
 

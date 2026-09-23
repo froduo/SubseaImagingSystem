@@ -66,6 +66,14 @@
   .ctl-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .ctl-btns>button{width:100%;min-width:0;padding:6px 6px;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
+  /* ---- 检测参数: 两字段一行, 标签右对齐, 输入等宽 + 单位 ---- */
+  .form-grid{display:grid;grid-template-columns:auto minmax(0,1fr) auto minmax(0,1fr);
+    gap:6px 8px;align-items:center;margin-bottom:6px}
+  .form-grid>label{color:#8aa0b4;font-size:12px;text-align:right;white-space:nowrap}
+  .form-grid select{width:100%}
+  .in-unit{display:flex;align-items:center;gap:4px;min-width:0}
+  .in-unit>input{flex:1;min-width:0;width:100%}
+  .in-unit>span{color:#7d8fa3;font-size:11px;white-space:nowrap}
   .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:#9fb3c6}
   .kv b{color:#e8f1fa}
   /* 长文本(如"当前文件")单行横向显示: 不换行 + 省略号, 完整内容见 title 悬浮 */
@@ -146,23 +154,30 @@
             <div class="kv"><span>状态</span><b id="thStatus">-</b></div>
           </div>
           <div class="grp">
-            <h4>检测参数（与本地程序同源）</h4>
-            <div class="row"><label>启用检测</label>
-              <select id="d-enable"><option value="true">开</option><option value="false">关</option></select></div>
-            <div class="row"><label>检测模式</label>
-              <select id="d-manual"><option value="true">手动(最低温度+最小面积)</option>
-                <option value="false">自动(环境温度+增量)</option></select></div>
-            <div class="row"><label>最低温度</label>
-              <input type="number" id="d-mintemp" step="0.5" style="width:78px"> °C</div>
-            <div class="row"><label>温度增量</label>
-              <input type="number" id="d-delta" step="0.5" style="width:78px"> °C</div>
-            <div class="row"><label>最小面积</label>
-              <input type="number" id="d-minarea" step="1" style="width:78px"> px</div>
-            <div class="row"><label>最大目标数</label>
-              <input type="number" id="d-maxsrc" step="1" style="width:78px"></div>
-            <div class="row"><label>网格显示</label>
-              <select id="d-grid"><option value="true">开</option><option value="false">关</option></select></div>
-            <div class="row">
+            <h4>检测参数 <span class="en">与本地程序同源</span></h4>
+            <!-- 布局优化: 两字段一行(标签右对齐 + 输入等宽), 单位紧随输入框 -->
+            <div class="form-grid">
+              <label>启用检测</label>
+              <select id="d-enable"><option value="true">开</option><option value="false">关</option></select>
+              <label>网格显示</label>
+              <select id="d-grid"><option value="true">开</option><option value="false">关</option></select>
+
+              <label>最低温度</label>
+              <div class="in-unit"><input type="number" id="d-mintemp" step="0.5"><span>°C</span></div>
+              <label>温度增量</label>
+              <div class="in-unit"><input type="number" id="d-delta" step="0.5"><span>°C</span></div>
+
+              <label>最小面积</label>
+              <div class="in-unit"><input type="number" id="d-minarea" step="1"><span>px</span></div>
+              <label>最大目标数</label>
+              <div class="in-unit"><input type="number" id="d-maxsrc" step="1"><span>个</span></div>
+            </div>
+            <div class="row" style="margin-bottom:6px"><label>检测模式</label>
+              <select id="d-manual" style="flex:1">
+                <option value="true">手动(最低温度 + 最小面积)</option>
+                <option value="false">自动(环境温度 + 增量)</option>
+              </select></div>
+            <div class="ctl-btns" style="margin-top:2px">
               <button onclick="saveDetect()">保存配置</button>
               <button class="sec" onclick="loadDetect()">重新读取</button>
             </div>
@@ -334,6 +349,8 @@
               <button class="sec" id="btnLaserDisc" onclick="laserClose()" disabled>断开串口</button>
             </div>
             <div class="kv"><span>串口状态</span><b id="l-occ">-</b></div>
+            <div class="kv"><span>设备应答</span><b id="l-reply">-</b></div>
+            <div id="l-warn" class="hint" style="display:none"></div>
           </div>
           <div class="grp">
             <h4>激光器控制</h4>
@@ -1734,7 +1751,8 @@ var LASER_CAL = [
   [10240, 14.01], [12288, 8.69], [14336, 4.39], [16384, 1.83]
 ];
 var L_ANG_MIN = 2.0, L_ANG_MAX = 65.0, L_ANG_STEP = 1.0, L_BRI_STEP = 5;
-var LS = { opened:false, controllable:false, on:false, ang:null, bri:null, pos:null, busy:false };
+var LS = { opened:false, controllable:false, on:false, ang:null, bri:null, pos:null,
+           busy:false, replied:null };
 var _lastCmdAt = 0;
 
 function posToAngle(p){
@@ -1794,6 +1812,24 @@ function applyLaserUi(st){
   var occ = document.getElementById('l-occ');
   if (occ) occ.textContent = o ? '已打开(本网关)'
                               : (c ? '未打开(可连接)' : '被本地程序占用');
+  /* 设备应答闭环: 串口可开 ≠ 设备在线, 用最近一次下发/查询是否有回读数据判定 */
+  if (st.replied !== undefined) LS.replied = st.replied;
+  var rep = document.getElementById('l-reply');
+  if (rep){
+    rep.className = (LS.replied === true) ? 'st-ok' : (LS.replied === false ? 'st-bad' : '');
+    rep.textContent = (LS.replied === true) ? '有应答'
+                    : (LS.replied === false ? '无应答' : '-');
+  }
+  var warn = document.getElementById('l-warn');
+  if (warn){
+    if (o && LS.replied === false){
+      warn.style.display = '';
+      warn.textContent = '⚠ 串口已打开但设备无应答: 请检查激光器电源/接线; '
+                       + '断电状态下控制指令不会被执行。';
+    } else {
+      warn.style.display = 'none';
+    }
+  }
   var m = document.getElementById('l-msg');
   if (m && !o){
     m.textContent = c ? '串口空闲, 点击「连接激光」后即可控制 开光/亮度/光斑角度'
@@ -1815,7 +1851,9 @@ function laserOpen(){
   lmsg('正在连接串口 ' + dev + ' ...');
   api('/api/laser/open', {dev: dev}).then(function(r){
     LS.busy = false;
-    lmsg('连接结果: ' + r.detail, !!r.ok);
+    LS.replied = (r.device_replied === undefined) ? null : !!r.device_replied;
+    lmsg('连接结果: ' + r.detail, !!r.ok && LS.replied !== false);
+    applyLaserUi(LS);
     loadLaser();
     setTimeout(laserQuery, 400);
   }).catch(function(e){
@@ -1841,16 +1879,18 @@ function laserOn(){
   if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
   _lastCmdAt = Date.now();
   api('/api/laser/on', {}).then(function(r){
-    if (r.ok){ LS.on = true; paintLaser(); lmsg('已开启激光', true); }
-    else { lmsg('开启失败: ' + r.detail, false); }
+    LS.replied = !!r.ok;
+    if (r.ok){ LS.on = true; paintLaser(); applyLaserUi(LS); lmsg('已开启激光', true); }
+    else { applyLaserUi(LS); lmsg('开启失败: ' + r.detail, false); }
   }).catch(function(e){ lmsg('开启失败: ' + e, false); });
 }
 function laserOff(){
   if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
   _lastCmdAt = Date.now();
   api('/api/laser/off', {}).then(function(r){
-    if (r.ok){ LS.on = false; paintLaser(); lmsg('已关闭激光', true); }
-    else { lmsg('关闭失败: ' + r.detail, false); }
+    LS.replied = !!r.ok;
+    if (r.ok){ LS.on = false; paintLaser(); applyLaserUi(LS); lmsg('已关闭激光', true); }
+    else { applyLaserUi(LS); lmsg('关闭失败: ' + r.detail, false); }
   }).catch(function(e){ lmsg('关闭失败: ' + e, false); });
 }
 function laserAngStep(dir){
@@ -1867,8 +1907,9 @@ function laserAngStep(dir){
   }
   var pos = angleToPos(tgt);
   api('/api/laser/position', {pos: pos}).then(function(r){
-    if (!r.ok){ lmsg('光斑角度失败: ' + r.detail, false); return; }
-    LS.ang = tgt; LS.pos = pos; paintLaser();
+    LS.replied = !!r.ok;
+    if (!r.ok){ applyLaserUi(LS); lmsg('光斑角度失败: ' + r.detail, false); return; }
+    LS.ang = tgt; LS.pos = pos; paintLaser(); applyLaserUi(LS);
     lmsg('光斑角度 -> ' + tgt.toFixed(2) + '° (位置 ' + pos + ')', true);
   }).catch(function(e){ lmsg('光斑角度失败: ' + e, false); });
 }
@@ -1893,8 +1934,9 @@ function laserBriStep(dir){
     return;
   }
   api('/api/laser/brightness', {level: tgt}).then(function(r){
-    if (!r.ok){ lmsg('亮度失败: ' + r.detail, false); return; }
-    LS.bri = tgt; paintLaser();
+    LS.replied = !!r.ok;
+    if (!r.ok){ applyLaserUi(LS); lmsg('亮度失败: ' + r.detail, false); return; }
+    LS.bri = tgt; paintLaser(); applyLaserUi(LS);
     lmsg('亮度 -> ' + tgt + '/255', true);
   }).catch(function(e){ lmsg('亮度失败: ' + e, false); });
 }
@@ -1909,6 +1951,8 @@ function laserBriStop(){
 }
 function laserReset(){
   api('/api/laser/reset', {}).then(function(r){
+    LS.replied = !!r.ok;
+    applyLaserUi(LS);
     lmsg('电机复位: ' + (r.ok ? 'ok' : r.detail), !!r.ok);
     setTimeout(laserQuery, 900);
   }).catch(function(e){ lmsg('复位失败: ' + e, false); });
@@ -1935,6 +1979,7 @@ function laserQuery(){
   _lastCmdAt = Date.now();
   api('/api/laser/query', {}).then(function(r){
     if (!r.ok){ lmsg('读状态失败', false); return; }
+    LS.replied = !!r.replied;
     var q = r.queries || {}, got = [];
     var fb = pelcoParse(q.brightness);
     if (fb){ LS.bri = fb.d1; got.push('亮度 ' + fb.d1 + '/255'); }
@@ -1948,6 +1993,11 @@ function laserQuery(){
     var fs = pelcoParse(q.switch);
     if (fs){ LS.on = !!fs.d1; got.push(LS.on ? '出光中' : '关闭'); }
     paintLaser();
+    applyLaserUi(LS);
+    if (!r.replied){
+      lmsg('查询无应答: 激光器可能断电/未接线(串口虽已打开)', false);
+      return;
+    }
     lmsg('状态: ' + (got.length ? got.join('   ') : '无应答'), true);
   }).catch(function(e){ lmsg('读状态失败: ' + e, false); });
 }
