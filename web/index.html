@@ -1442,17 +1442,29 @@ function loadTcp(){
   api('/api/tcpserver').then(function(d){
     document.getElementById('t-port').textContent = d.port;
     setCls('t-listen', d.running ? 'st-ok' : 'st-bad', d.running ? '已启动' : '未启动');
-    setTxt('t-clients', d.clients);
-    setCls('t-bridge', d.prog_tcp ? 'st-ok' : 'st-bad', d.prog_tcp ? '已连接' : '未连接');
+    /* 客户端数: 仅统计真实外部客户端(网关自连接已在网关侧禁止) */
+    var cli = (d.clients_external !== undefined) ? d.clients_external : d.clients;
+    setTxt('t-clients', cli);
+    /* 网关桥接: 区分 已连接 / 端口冲突(8888 被网关自带 TCP 占用) / 未连接 */
+    var bstate = d.prog_tcp_state || (d.prog_tcp ? 'connected' : 'disconnected');
+    var btxt = bstate === 'connected' ? '已连接'
+             : bstate === 'port_conflict' ? '未启用(8888 被网关占用)'
+             : '未连接';
+    setCls('t-bridge', bstate === 'connected' ? 'st-ok'
+                    : (bstate === 'port_conflict' ? 'st-wait' : 'st-bad'), btxt);
     var bs = el('btnTcpStart'), bp = el('btnTcpStop');
     if (bs){ bs.disabled = !!d.running || TCPBUSY; bs.textContent = '启动TCP'; }
     if (bp){ bp.disabled = !d.running || TCPBUSY; bp.textContent = '停止TCP'; }
     var h = document.getElementById('t-hint');
     if (d.running){
-      h.textContent = '网关 TCP 服务器运行中(端口 ' + d.port + '), 客户端 ' + d.clients +
+      h.textContent = '网关 TCP 服务器运行中(端口 ' + d.port + '), 外部客户端 ' + cli +
         ' 个。协议与设备侧程序一致: zoom/focus/iris/ptz/stop/status/help; ' +
-        '每 100ms 推送 angle_data(含检测结果)。';
-      h.className = 'hint ok';
+        '每 100ms 推送 angle_data(含检测结果)。' +
+        (bstate === 'port_conflict'
+          ? ' 【提示】网关已占用端口 ' + d.port + ', 与本地程序的「启动TCP」互斥(请二选一); '
+            + '当前不会桥接本地程序。'
+          : '');
+      h.className = 'hint' + (bstate === 'port_conflict' ? '' : ' ok');
     } else {
       h.textContent = '未启动。点击「启动TCP」由网关提供该服务(与设备侧程序的「启动TCP」互斥, 请二选一)。';
       h.className = 'hint';
@@ -1507,8 +1519,9 @@ function refresh(){
     pc.className = 'pill ' + (s.ok?'ok':'bad');
     pc.textContent = '相机' + (s.ok?'正常':'异常');
     var pg = document.getElementById('pProg');
+    var pconf = (s.prog_tcp_state === 'port_conflict');
     pg.className = 'pill ' + (s.prog_tcp?'ok':'bad');
-    pg.textContent = '程序TCP' + (s.prog_tcp?'已连接':'未连接');
+    pg.textContent = '程序TCP' + (s.prog_tcp?'已连接':(pconf?'未启用':'未连接'));
     CAM_OK = !!s.ok;                 /* 相机可达性并入可见光链路文案 */
     renderVisibleLink();
     document.getElementById('vZoom').textContent = (s.zoom_x||'-') + '×';
@@ -1561,10 +1574,13 @@ function connectEvents(){
     var msg; try { msg = JSON.parse(ev.data); } catch(e){ return; }
     if (msg.type === 'tcp'){
       var pg = el('pProg');
+      var conflict = (msg.reason === 'port_conflict');
       if (pg){ pg.className = 'pill ' + (msg.connected?'ok':'bad');
-               pg.textContent = '程序TCP' + (msg.connected?'已连接':'未连接'); }
-      setCls('t-bridge', msg.connected?'st-ok':'st-bad', msg.connected?'已连接':'未连接');
-      log('程序 TCP 8888 ' + (msg.connected?'已连接':'断开'));
+               pg.textContent = '程序TCP' + (msg.connected?'已连接':(conflict?'未启用':'未连接')); }
+      setCls('t-bridge', msg.connected?'st-ok':(conflict?'st-wait':'st-bad'),
+             msg.connected?'已连接':(conflict?'未启用(8888 被网关占用)':'未连接'));
+      log('程序 TCP 8888 ' + (msg.connected?'已连接'
+              :(conflict?'未启用(端口被网关自带TCP占用)':'断开')));
       return;
     }
     if (msg.type === 'prog'){

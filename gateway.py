@@ -210,7 +210,7 @@ def record_stop():
 # ---------------------------------------------------------------- 8888 桥接 (SSE)
 _sse_clients = []
 _sse_lock = threading.Lock()
-_tcp_state = {"connected": False, "last": ""}
+_tcp_state = {"connected": False, "last": "", "conflict": False}
 
 
 def sse_broadcast(obj):
@@ -226,9 +226,41 @@ def sse_broadcast(obj):
             _sse_clients.remove(d)
 
 
+def prog_tcp_port_conflict():
+    """网关自带的 TCP 服务器是否已占用程序侧端口(8888)。
+
+    此时再去连 127.0.0.1:8888 只会连到网关自己(loopback 自连接):
+      - 会被自己的 accept 记成 1 个"客户端"(假客户端);
+      - 会让 prog_tcp 误报"已连接"。
+    因此端口被自己占用时必须跳过桥接。
+    """
+    try:
+        with _tcpsrv_lock:
+            return bool(_tcpsrv["running"] and int(_tcpsrv["port"]) == int(PROG_TCP[1]))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def prog_tcp_state():
+    """桥接状态: connected | port_conflict | disconnected"""
+    if _tcp_state.get("conflict"):
+        return "port_conflict"
+    return "connected" if _tcp_state["connected"] else "disconnected"
+
+
 def prog_tcp_worker():
     """持续尝试连接现有程序的 TCP 8888, 把 angle_data 等推送转给 SSE"""
     while True:
+        # 端口被网关自带 TCP 占用时连 8888 只会连到自己(自连接): 跳过并如实上报冲突
+        conflict = prog_tcp_port_conflict()
+        if conflict != _tcp_state.get("conflict"):
+            _tcp_state["conflict"] = conflict
+            if conflict:
+                _tcp_state["connected"] = False
+                sse_broadcast({"type": "tcp", "connected": False, "reason": "port_conflict"})
+        if conflict:
+            time.sleep(2)
+            continue
         try:
             s = socket.create_connection(PROG_TCP, timeout=5)
             s.settimeout(1.0)
@@ -266,6 +298,9 @@ def prog_tcp_worker():
 
 def prog_tcp_send(line):
     """把控制指令转发给现有程序的 8888 (可选通道, 例如 zoom/-focus/iris/ptz)"""
+    if prog_tcp_port_conflict():
+        return False, ("端口 8888 被网关自带 TCP 占用, 未转发到本地程序 "
+                       "(请先在程序中停止 TCP, 或停用网关自带 TCP)")
     try:
         s = socket.create_connection(PROG_TCP, timeout=3)
         s.sendall((line.strip() + "\n").encode())
@@ -321,6 +356,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             st = camera_status()
             st["prog_tcp"] = _tcp_state["connected"]
+            st["prog_tcp_state"] = prog_tcp_state()
             st["recording"] = bool(_rec["proc"] and _rec["proc"].poll() is None)
             st["record_file"] = os.path.basename(_rec["path"]) if _rec["path"] else None
             return self._json(st)
@@ -1093,10 +1129,14 @@ def _do_GET5(self):
     if path == "/api/tcpserver":
         st = tcpsrv_status()
         st["prog_tcp"] = _tcp_state["connected"]     # 程序侧 8888(参考)
+        st["prog_tcp_state"] = prog_tcp_state()      # connected | port_conflict | disconnected
+        st["clients_external"] = st.get("clients", 0)  # 自连接已禁止, 即为真实外部客户端数
         return self._json(st)
     if path == "/api/tcp":
         st = tcpsrv_status()                          # 网页可启停的是网关自己的服务
         st["prog_tcp"] = _tcp_state["connected"]
+        st["prog_tcp_state"] = prog_tcp_state()
+        st["clients_external"] = st.get("clients", 0)
         return self._json(st)
     return _orig_do_GET4(self)
 
