@@ -1,0 +1,380 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1280</width>
+    <height>720</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>水下成像巡检取证系统</string>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <layout class="QHBoxLayout" name="mainLayout">
+    <item>
+     <layout class="QVBoxLayout" name="videoLayout">
+      <item>
+       <layout class="QHBoxLayout" name="videoFrameLayout">
+        <item>
+         <layout class="QVBoxLayout" name="thermalColumnLayout">
+          <item>
+           <widget class="QLabel" name="labelThermal">
+            <property name="minimumSize">
+             <size>
+              <width>320</width>
+              <height>256</height>
+             </size>
+            </property>
+            <property name="frameShape">
+             <enum>QFrame::Box</enum>
+            </property>
+            <property name="text">
+             <string>热像仪画面</string>
+            </property>
+            <property name="alignment">
+             <set>Qt::AlignCenter</set>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QGroupBox" name="thermalInfoBox">
+            <property name="title">
+             <string>目标信息</string>
+            </property>
+            <layout class="QGridLayout" name="thermalInfoLayout">
+             <item row="0" column="0">
+              <widget class="QLabel" name="labelDeltaX">
+               <property name="text">
+                <string>ΔX: --</string>
+               </property>
+               <property name="font">
+                <font>
+                 <pointsize>11</pointsize>
+                 <weight>75</weight>
+                 <bold>true</bold>
+                </font>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QLabel" name="labelDeltaY">
+               <property name="text">
+                <string>ΔY: --</string>
+               </property>
+               <property name="font">
+                <font>
+                 <pointsize>11</pointsize>
+                 <weight>75</weight>
+                 <bold>true</bold>
+                </font>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="labelDistance">
+               <property name="text">
+                <string>距中心: --</string>
+               </property>
+               <property name="font">
+                <font>
+                 <pointsize>11</pointsize>
+                 <weight>75</weight>
+                 <bold>true</bold>
+                </font>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QLabel" name="labelMaxTemp">
+               <property name="text">
+                <string>温度: --</string>
+               </property>
+               <property name="font">
+                <font>
+                 <pointsize>11</pointsize>
+                 <weight>75</weight>
+                 <bold>true</bold>
+                </font>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QLabel" name="labelVisible">
+          <property name="minimumSize">
+           <size>
+            <width>480</width>
+            <height>270</height>
+           </size>
+          </property>
+          <property name="frameShape">
+           <enum>QFrame::Box</enum>
+          </property>
+          <property name="text">
+           <string>可见光画面</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </item>
+    <item>
+     <widget class="QGroupBox" name="controlPanel">
+      <property name="title">
+       <string>控制面板</string>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>280</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>260</width>
+        <height>0</height>
+       </size>
+      </property>
+      <layout class="QVBoxLayout" name="controlLayout">
+       <item>
+        <widget class="QGroupBox" name="groupVisibleCam">
+         <property name="title">
+          <string>可见光控制</string>
+         </property>
+         <layout class="QVBoxLayout" name="visCamLayout">
+          <item>
+           <layout class="QHBoxLayout" name="visBtnLayout">
+            <item>
+             <widget class="QPushButton" name="btnConnectVisible">
+              <property name="text">
+               <string>连接可见光</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnDisconnectVisible">
+              <property name="text">
+               <string>断开可见光</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelExposure">
+            <property name="text">
+             <string>曝光: 50</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="sliderExposure">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelGain">
+            <property name="text">
+             <string>增益 Gain: 60</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="sliderGain">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="toolTip">
+             <string>0-100；越高画面越亮但噪声越大；调节时自动切换为手动曝光</string>
+            </property>
+            <property name="value">
+             <number>60</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupDetect">
+         <property name="title">
+          <string>热源检测</string>
+         </property>
+         <layout class="QVBoxLayout" name="detectLayout">
+          <item>
+           <layout class="QHBoxLayout" name="thermalBtnLayout">
+            <item>
+             <widget class="QPushButton" name="btnConnectThermal">
+              <property name="text">
+               <string>连接热像仪</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnDisconnectThermal">
+              <property name="text">
+               <string>断开热像仪</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupLaser">
+         <property name="title">
+          <string>红外激光</string>
+         </property>
+         <layout class="QVBoxLayout" name="laserLayout">
+          <item>
+           <layout class="QHBoxLayout" name="laserBtnLayout">
+            <item>
+             <widget class="QPushButton" name="btnConnectLaser">
+              <property name="text">
+               <string>连接</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnDisconnectLaser">
+              <property name="text">
+               <string>断开</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QComboBox" name="comboSerialPort"/>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelLaserStatus">
+            <property name="text">
+             <string>未连接</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: red;</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelLaserZoom">
+            <property name="text">
+             <string>光斑大小</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="sliderLaserZoom">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelBrightness">
+            <property name="text">
+             <string>亮度</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSlider" name="sliderBrightness">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="groupTcp">
+         <property name="title">
+          <string>TCP服务器</string>
+         </property>
+         <layout class="QVBoxLayout" name="tcpLayout">
+          <item>
+           <layout class="QHBoxLayout" name="tcpBtnLayout">
+            <item>
+             <widget class="QPushButton" name="btnStartTcp">
+              <property name="text">
+               <string>启动</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btnStopTcp">
+              <property name="text">
+               <string>停止</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="labelTcpStatus">
+            <property name="text">
+             <string>已停止</string>
+            </property>
+            <property name="styleSheet">
+             <string notr="true">color: red;</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+ </widget>
+ <resources/>
+ <connections/>
+ <slots>
+  <slot>on_btnConnectThermal_clicked()</slot>
+  <slot>on_btnDisconnectThermal_clicked()</slot>
+  <slot>on_btnConnectVisible_clicked()</slot>
+  <slot>on_btnDisconnectVisible_clicked()</slot>
+  <slot>on_sliderBrightness_valueChanged(int)</slot>
+  <slot>on_sliderLaserZoom_valueChanged(int)</slot>
+  <slot>on_btnStartTcp_clicked()</slot>
+  <slot>on_btnStopTcp_clicked()</slot>
+  <slot>on_btnConnectLaser_clicked()</slot>
+  <slot>on_btnDisconnectLaser_clicked()</slot>
+  <slot>on_sliderExposure_valueChanged(int)</slot>
+  <slot>on_sliderGain_valueChanged(int)</slot>
+ </slots>
+</ui>
