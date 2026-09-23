@@ -55,6 +55,17 @@
   .row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
   .row label{color:#8aa0b4;min-width:56px}
   .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  /* ---- 控制块: 统一按钮尺寸与布局 (镜头参数 / 激光器控制) ----
+     结构: 标题行(名称 + 当前值) + 两列等宽按钮网格 */
+  .ctl{margin-bottom:9px}
+  .ctl-head{display:flex;justify-content:space-between;align-items:baseline;
+    gap:6px;margin-bottom:4px}
+  .ctl-head>span{color:#8aa0b4;white-space:nowrap}
+  .ctl-head>b{color:#e8f1fa;font-size:12px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
+  .ctl-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .ctl-btns>button{width:100%;min-width:0;padding:6px 6px;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis}
   .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:#9fb3c6}
   .kv b{color:#e8f1fa}
   /* 长文本(如"当前文件")单行横向显示: 不换行 + 省略号, 完整内容见 title 悬浮 */
@@ -241,27 +252,43 @@
           <!-- 云台控制显示已按要求取消(PTZ 相关后端能力保留, 供必要时外部调用) -->
           <div class="grp">
             <h4>镜头参数 <span class="en">Lens</span></h4>
-            <!-- 命名规范: 统一为 参数名(中文) + 动作(＋/－) + 当前值(设备参数/物理单位) -->
-            <div class="row"><label title="光学变焦(zoom): 改变焦距以放大/缩小目标">变焦</label>
-              <button class="sec" title="长焦: 视场变窄、目标放大(按住连续)" onpointerdown="zoom(1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">＋ 长焦</button>
-              <button class="sec" title="广角: 视场变宽、目标缩小(按住连续)" onpointerdown="zoom(-1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">－ 广角</button>
-              <span style="margin-left:auto">倍率 <b id="vZoom">-</b></span></div>
-            <div class="row"><label title="聚焦(focus): 调整最小聚焦距离档位(近处 ~ 无限远)">聚焦</label>
-              <button class="sec" title="聚焦更远(档位趋向无限远)" onclick="focus(1)">＋ 远</button>
-              <button class="sec" title="聚焦更近(档位趋向近处)" onclick="focus(-1)">－ 近</button>
-              <span style="margin-left:auto">最小距离 <b id="vFocus">-</b></span></div>
-            <div class="row"><label title="光圈(iris): 控制进光量, IrisLevel 数值越大画面越暗">光圈</label>
-              <button class="sec" title="开大光圈: 进光量增大、画面变亮" onclick="irisStep(1)">＋ 开大</button>
-              <button class="sec" title="关小光圈: 进光量减小、画面变暗" onclick="irisStep(-1)">－ 关小</button>
-              <span style="margin-left:auto">IrisLevel <b id="vIris">-</b></span></div>
-            <div class="row"><label title="增益(gain): 信号放大 0~100, 越大越亮但噪声越多">增益</label>
-              <button class="sec" title="增益 +10" onclick="gainStep(10)">＋ 10</button>
-              <button class="sec" title="增益 -10" onclick="gainStep(-10)">－ 10</button>
-              <span style="margin-left:auto">GainLevel <b id="vGain">-</b></span></div>
-            <div class="row"><label title="曝光模式(exposure): 自动(AE) 或 手动(由光圈/增益决定)">曝光</label>
-              <button class="sec" title="自动曝光: 相机自动调整画面亮度" onclick="exposure('auto')">自动</button>
-              <button class="sec" title="手动曝光: 先切手动, 再由光圈/增益控制" onclick="exposure('manual')">手动</button>
-              <span style="margin-left:auto;color:#7d8fa3">自动 / 手动</span></div>
+            <!-- 命名规范: 按钮统一为「标签+ / 标签-」, 两列等宽; 当前值统一带参数名与单位 -->
+            <div class="ctl">
+              <div class="ctl-head"><span title="光学变焦(zoom): 改变焦距以放大/缩小目标">变焦</span><b id="vZoom">-</b></div>
+              <div class="ctl-btns">
+                <button class="sec" title="变焦+ 长焦: 视场变窄、目标放大(按住连续)" onpointerdown="zoom(1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">变焦+</button>
+                <button class="sec" title="变焦- 广角: 视场变宽、目标缩小(按住连续)" onpointerdown="zoom(-1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">变焦-</button>
+              </div>
+            </div>
+            <div class="ctl">
+              <div class="ctl-head"><span title="聚焦(focus): 调整最小聚焦距离档位(近处 ~ 无限远)">聚焦</span><b id="vFocus">-</b></div>
+              <div class="ctl-btns">
+                <button class="sec" title="聚焦+ 更远(档位趋向无限远)" onclick="focus(1)">聚焦+</button>
+                <button class="sec" title="聚焦- 更近(档位趋向近处)" onclick="focus(-1)">聚焦-</button>
+              </div>
+            </div>
+            <div class="ctl">
+              <div class="ctl-head"><span title="光圈(iris): 控制进光量, IrisLevel 数值越大画面越暗">光圈</span><b id="vIris">-</b></div>
+              <div class="ctl-btns">
+                <button class="sec" title="光圈+ 开大: 进光量增大、画面变亮" onclick="irisStep(1)">光圈+</button>
+                <button class="sec" title="光圈- 关小: 进光量减小、画面变暗" onclick="irisStep(-1)">光圈-</button>
+              </div>
+            </div>
+            <div class="ctl">
+              <div class="ctl-head"><span title="增益(gain): 信号放大 0~100, 越大越亮但噪声越多">增益</span><b id="vGain">-</b></div>
+              <div class="ctl-btns">
+                <button class="sec" title="增益+10(GainLevel +10)" onclick="gainStep(10)">增益+</button>
+                <button class="sec" title="增益-10(GainLevel -10)" onclick="gainStep(-10)">增益-</button>
+              </div>
+            </div>
+            <div class="ctl">
+              <div class="ctl-head"><span title="曝光模式(exposure): 自动(AE) 或 手动(由光圈/增益决定)">曝光</span>
+                <span style="color:#7d8fa3;font-size:11px">自动 / 手动</span></div>
+              <div class="ctl-btns">
+                <button class="sec" title="自动曝光: 相机自动调整画面亮度" onclick="exposure('auto')">曝光自动</button>
+                <button class="sec" title="手动曝光: 先切手动, 再由光圈/增益控制" onclick="exposure('manual')">曝光手动</button>
+              </div>
+            </div>
             <div class="hint gray">
               变焦为<i>按住</i>连续动作; 聚焦按最小聚焦距离档位、光圈/增益为<i>单击</i>步进;
               调整光圈/增益会自动切到手动曝光。
@@ -302,28 +329,34 @@
                 <option value="/dev/ir_laser">/dev/ir_laser</option>
                 <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
               </select></div>
-            <div class="row">
+            <div class="ctl-btns">
               <button id="btnLaserConn" onclick="laserOpen()">连接激光</button>
-              <button class="sec" id="btnLaserDisc" onclick="laserClose()" disabled>断开</button>
+              <button class="sec" id="btnLaserDisc" onclick="laserClose()" disabled>断开串口</button>
             </div>
             <div class="kv"><span>串口状态</span><b id="l-occ">-</b></div>
           </div>
           <div class="grp">
             <h4>激光器控制</h4>
-            <div class="row">
-              <button class="sec" id="l-ang-up" onpointerdown="laserAngHold(1)" onpointerup="laserAngStop()" onpointerleave="laserAngStop()" onpointercancel="laserAngStop()" disabled>光斑角度+</button>
-              <button class="sec" id="l-ang-dn" onpointerdown="laserAngHold(-1)" onpointerup="laserAngStop()" onpointerleave="laserAngStop()" onpointercancel="laserAngStop()" disabled>光斑角度-</button>
-              <span style="margin-left:auto">光斑角度 <b id="l-ang">-</b></span>
+            <div class="ctl">
+              <div class="ctl-head"><span title="光斑角度即光斑大小, 2°~65°">光斑角度</span><b id="l-ang">-</b></div>
+              <div class="ctl-btns">
+                <button class="sec" id="l-ang-up" onpointerdown="laserAngHold(1)" onpointerup="laserAngStop()" onpointerleave="laserAngStop()" onpointercancel="laserAngStop()" disabled>光斑角度+</button>
+                <button class="sec" id="l-ang-dn" onpointerdown="laserAngHold(-1)" onpointerup="laserAngStop()" onpointerleave="laserAngStop()" onpointercancel="laserAngStop()" disabled>光斑角度-</button>
+              </div>
             </div>
-            <div class="row">
-              <button class="sec" id="l-bri-up" onpointerdown="laserBriHold(1)" onpointerup="laserBriStop()" onpointerleave="laserBriStop()" onpointercancel="laserBriStop()" disabled>亮度+</button>
-              <button class="sec" id="l-bri-dn" onpointerdown="laserBriHold(-1)" onpointerup="laserBriStop()" onpointerleave="laserBriStop()" onpointercancel="laserBriStop()" disabled>亮度-</button>
-              <span style="margin-left:auto">亮度 <b id="l-bri">-</b></span>
+            <div class="ctl">
+              <div class="ctl-head"><span title="亮度 0~255">亮度</span><b id="l-bri">-</b></div>
+              <div class="ctl-btns">
+                <button class="sec" id="l-bri-up" onpointerdown="laserBriHold(1)" onpointerup="laserBriStop()" onpointerleave="laserBriStop()" onpointercancel="laserBriStop()" disabled>亮度+</button>
+                <button class="sec" id="l-bri-dn" onpointerdown="laserBriHold(-1)" onpointerup="laserBriStop()" onpointerleave="laserBriStop()" onpointercancel="laserBriStop()" disabled>亮度-</button>
+              </div>
             </div>
-            <div class="row">
-              <button id="btnLaserOn" class="danger" onclick="laserOn()" disabled>开启激光</button>
-              <button id="btnLaserOff" onclick="laserOff()" disabled>关闭激光</button>
-              <span style="margin-left:auto">激光:<b id="l-sw">-</b></span>
+            <div class="ctl">
+              <div class="ctl-head"><span>激光开关</span><b id="l-sw">-</b></div>
+              <div class="ctl-btns">
+                <button class="danger" id="btnLaserOn" onclick="laserOn()" disabled>开启激光</button>
+                <button id="btnLaserOff" onclick="laserOff()" disabled>关闭激光</button>
+              </div>
             </div>
             <div class="hint gray">
               光斑角度 2°~65°;  2° = 远角(有效距离 > 800m, 光斑直径 < 21m)<br>
@@ -332,7 +365,7 @@
           </div>
           <div class="grp">
             <h4>状态</h4>
-            <div class="row">
+            <div class="ctl-btns" style="margin-bottom:6px">
               <button class="sec" id="l-query" onclick="laserQuery()" disabled>读状态</button>
               <button class="sec" id="l-reset" onclick="laserReset()" disabled>电机复位</button>
             </div>
@@ -1527,11 +1560,11 @@ function refresh(){
     pg.textContent = '程序TCP' + (s.prog_tcp?'已连接':(pconf?'未启用':'未连接'));
     CAM_OK = !!s.ok;                 /* 相机可达性并入可见光链路文案 */
     renderVisibleLink();
-    document.getElementById('vZoom').textContent = (s.zoom_x||'-') + '×';
-    document.getElementById('vIris').textContent = s.iris_level||'-';
-    document.getElementById('vGain').textContent = s.gain||'-';
+    document.getElementById('vZoom').textContent = '倍率 ' + (s.zoom_x||'-') + '×';
+    document.getElementById('vIris').textContent = 'IrisLevel ' + (s.iris_level||'-');
+    document.getElementById('vGain').textContent = 'GainLevel ' + (s.gain||'-');
     document.getElementById('vIrcut').textContent = s.ircut||'-';
-    document.getElementById('vFocus').textContent = focusLabel(s.focus_limited);
+    document.getElementById('vFocus').textContent = '最近 ' + focusLabel(s.focus_limited);
     if (s.iris_level) window._iris = parseInt(s.iris_level);
     if (s.gain) window._gain = parseInt(s.gain);
     var rec = el('pRec');
