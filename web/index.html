@@ -57,6 +57,10 @@
   .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
   .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:#9fb3c6}
   .kv b{color:#e8f1fa}
+  /* 长文本(如"当前文件")单行横向显示: 不换行 + 省略号, 完整内容见 title 悬浮 */
+  .kv b.oneline{flex:1;min-width:0;text-align:right;white-space:nowrap;
+    overflow:hidden;text-overflow:ellipsis;direction:ltr}
+  .grp>h4 .en{color:#5c7a95;font-weight:normal;font-size:11px;margin-left:5px}
   input[type=number],input[type=text],select{background:#0a1219;color:#d7e3ee;
     border:1px solid #22303f;border-radius:4px;padding:3px 6px;font-size:12px}
   input[type=range]{flex:1}
@@ -234,43 +238,34 @@
               </div>
             </details>
           </div>
+          <!-- 云台控制显示已按要求取消(PTZ 相关后端能力保留, 供必要时外部调用) -->
           <div class="grp">
-            <h4>云台</h4>
-            <div class="grid3">
-              <span></span>
-              <button class="sec" onpointerdown="ptz(0,1,0)" onpointerup="ptzStop()">▲</button>
-              <span></span>
-              <button class="sec" onpointerdown="ptz(-1,0,0)" onpointerup="ptzStop()">◀</button>
-              <button class="sec" onpointerdown="ptz(0,-1,0)" onpointerup="ptzStop()">▼</button>
-              <button class="sec" onpointerdown="ptz(1,0,0)" onpointerup="ptzStop()">▶</button>
-            </div>
-            <div class="row" style="margin-top:7px"><label>速度</label>
-              <input type="range" id="ptzSpeed" min="10" max="100" value="40">
-              <span id="ptzSpeedV">40</span></div>
-          </div>
-          <div class="grp">
-            <h4>镜头参数</h4>
-            <div class="row"><label>调焦</label>
-              <button class="sec" onpointerdown="zoom(1)" onpointerup="ptzStop()">＋拉近</button>
-              <button class="sec" onpointerdown="zoom(-1)" onpointerup="ptzStop()">－拉远</button>
+            <h4>镜头参数 <span class="en">Lens</span></h4>
+            <!-- 命名规范: 统一为 参数名(中文) + 动作(＋/－) + 当前值(设备参数/物理单位) -->
+            <div class="row"><label title="光学变焦(zoom): 改变焦距以放大/缩小目标">变焦</label>
+              <button class="sec" title="长焦: 视场变窄、目标放大(按住连续)" onpointerdown="zoom(1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">＋ 长焦</button>
+              <button class="sec" title="广角: 视场变宽、目标缩小(按住连续)" onpointerdown="zoom(-1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">－ 广角</button>
               <span style="margin-left:auto">倍率 <b id="vZoom">-</b></span></div>
-            <div class="row"><label>聚焦</label>
-              <button class="sec" onclick="focus(1)">更远 ＋</button>
-              <button class="sec" onclick="focus(-1)">更近 －</button>
-              <span style="margin-left:auto"><b id="vFocus">-</b></span></div>
-            <div class="row"><label>光圈</label>
-              <button class="sec" onclick="irisStep(1)">开大 ＋</button>
-              <button class="sec" onclick="irisStep(-1)">关小 －</button>
-              <span style="margin-left:auto">Iris <b id="vIris">-</b></span></div>
-            <div class="row"><label>增益</label>
-              <button class="sec" onclick="gainStep(10)">＋10</button>
-              <button class="sec" onclick="gainStep(-10)">－10</button>
-              <span style="margin-left:auto">Gain <b id="vGain">-</b></span></div>
-            <div class="row"><label>曝光</label>
-              <button class="sec" onclick="exposure('auto')">自动</button>
-              <button class="sec" onclick="exposure('manual')">手动</button></div>
-            <div class="hint gray">该机芯无"聚焦±步进", 按最小聚焦距离档位步进(与本地一致);
-              改光圈/增益会先切手动曝光。</div>
+            <div class="row"><label title="聚焦(focus): 调整最小聚焦距离档位(近处 ~ 无限远)">聚焦</label>
+              <button class="sec" title="聚焦更远(档位趋向无限远)" onclick="focus(1)">＋ 远</button>
+              <button class="sec" title="聚焦更近(档位趋向近处)" onclick="focus(-1)">－ 近</button>
+              <span style="margin-left:auto">最小距离 <b id="vFocus">-</b></span></div>
+            <div class="row"><label title="光圈(iris): 控制进光量, IrisLevel 数值越大画面越暗">光圈</label>
+              <button class="sec" title="开大光圈: 进光量增大、画面变亮" onclick="irisStep(1)">＋ 开大</button>
+              <button class="sec" title="关小光圈: 进光量减小、画面变暗" onclick="irisStep(-1)">－ 关小</button>
+              <span style="margin-left:auto">IrisLevel <b id="vIris">-</b></span></div>
+            <div class="row"><label title="增益(gain): 信号放大 0~100, 越大越亮但噪声越多">增益</label>
+              <button class="sec" title="增益 +10" onclick="gainStep(10)">＋ 10</button>
+              <button class="sec" title="增益 -10" onclick="gainStep(-10)">－ 10</button>
+              <span style="margin-left:auto">GainLevel <b id="vGain">-</b></span></div>
+            <div class="row"><label title="曝光模式(exposure): 自动(AE) 或 手动(由光圈/增益决定)">曝光</label>
+              <button class="sec" title="自动曝光: 相机自动调整画面亮度" onclick="exposure('auto')">自动</button>
+              <button class="sec" title="手动曝光: 先切手动, 再由光圈/增益控制" onclick="exposure('manual')">手动</button>
+              <span style="margin-left:auto;color:#7d8fa3">自动 / 手动</span></div>
+            <div class="hint gray">
+              变焦为<i>按住</i>连续动作; 聚焦按最小聚焦距离档位、光圈/增益为<i>单击</i>步进;
+              调整光圈/增益会自动切到手动曝光。
+            </div>
           </div>
           <div class="grp">
             <h4>图像参数</h4>
@@ -292,7 +287,7 @@
               </select></div>
             <div class="row"><button class="warn" id="bRec2" onclick="toggleRec()">开始录像</button>
               <button onclick="snapshot()">抓图</button></div>
-            <div class="kv"><span>当前文件</span><b id="vRecFile">-</b></div>
+            <div class="kv"><span>当前文件</span><b id="vRecFile" class="oneline" title="-">-</b></div>
             <div id="snapList" style="font-size:11px;color:#9fb3c6;margin-top:4px"></div>
           </div>
         </div>
@@ -380,8 +375,8 @@
               <button onclick="sendCmd()">发送</button>
             </div>
             <div class="row">
-              <button class="sec" onclick="quick('zoom +')">调焦+</button>
-              <button class="sec" onclick="quick('zoom -')">调焦-</button>
+              <button class="sec" onclick="quick('zoom +')">变焦+</button>
+              <button class="sec" onclick="quick('zoom -')">变焦-</button>
               <button class="sec" onclick="quick('focus +')">聚焦+</button>
               <button class="sec" onclick="quick('focus -')">聚焦-</button>
               <button class="sec" onclick="quick('iris +')">光圈+</button>
@@ -1331,7 +1326,7 @@ function disconnectVisible(){
   renderVisibleLink();
   log('已断开可见光视频');
 }
-function spd(){ return parseInt(document.getElementById('ptzSpeed').value) || 40; }
+function spd(){ var e = document.getElementById('ptzSpeed'); return e ? (parseInt(e.value) || 40) : 40; }
 function ptz(px, py){
   var s = spd();
   api('/api/ptz', {pan:px*s, tilt:py*s, zoom:0, ms:1500})
@@ -1341,7 +1336,15 @@ function ptzStop(){ api('/api/ptzstop', {}).then(function(){ log('停止云台/�
 function zoom(dir){
   var s = spd();
   api('/api/ptz', {pan:0, tilt:0, zoom:dir*s, ms:800})
-    .then(function(r){ log('调焦' + (dir>0?'拉近':'拉远') + (r.ok?' OK':' 失败')); });
+    .then(function(r){ log('变焦' + (dir>0?'长焦(拉近)':'广角(拉远)') + (r.ok?' OK':' 失败')); });
+}
+/* 聚焦距离档位(设备值) -> 可读单位, 与本地 Qt 程序 focusLimitedLabel() 一致 */
+function focusLabel(v){
+  v = parseInt(v, 10);
+  if (isNaN(v)) return '-';
+  if (v === 65535) return '无限远';
+  if (v === 0)     return '自动';
+  return (v >= 100) ? (v / 100).toFixed(1) + ' m' : v + ' cm';
 }
 function focus(dir){
   api('/api/focus', {dir:dir}).then(function(r){
@@ -1528,7 +1531,7 @@ function refresh(){
     document.getElementById('vIris').textContent = s.iris_level||'-';
     document.getElementById('vGain').textContent = s.gain||'-';
     document.getElementById('vIrcut').textContent = s.ircut||'-';
-    document.getElementById('vFocus').textContent = s.focus_limited||'-';
+    document.getElementById('vFocus').textContent = focusLabel(s.focus_limited);
     if (s.iris_level) window._iris = parseInt(s.iris_level);
     if (s.gain) window._gain = parseInt(s.gain);
     var rec = el('pRec');
@@ -1536,7 +1539,8 @@ function refresh(){
     if (REC.on !== !!s.recording) log('录像状态: ' + (s.recording ? '录像中' : '已停止'));
     REC.on = !!s.recording;               /* 真实状态回填, 供「开始/结束录像」按钮判定 */
     renderRec();
-    if (s.record_file) setTxt('vRecFile', s.record_file);
+    var rf = el('vRecFile');
+    if (rf && s.record_file){ rf.textContent = s.record_file; rf.title = s.record_file; }
   }).catch(function(){});
 }
 function updateBars(){
@@ -1622,9 +1626,11 @@ document.querySelectorAll('#tabs div').forEach(function(t){
     if (want === 'tcp'){ loadTcp(); }
   };
 });
-document.getElementById('ptzSpeed').oninput = function(){
-  document.getElementById('ptzSpeedV').textContent = this.value;
-};
+(function(){
+  /* 速度滑条随云台控制一并移除, 这里做空值保护(zoom 仍用 spd() 取默认速度) */
+  var ps = document.getElementById('ptzSpeed'), pv = document.getElementById('ptzSpeedV');
+  if (ps) ps.oninput = function(){ if (pv) pv.textContent = this.value; };
+})();
 ['d-enable','d-manual','d-mintemp','d-delta','d-minarea','d-maxsrc','d-grid'].forEach(function(id){
   var el = document.getElementById(id);
   if (el) el.addEventListener('change', syncDetFromUi);
