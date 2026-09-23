@@ -1,0 +1,5 @@
+*.bak*
+*.bak
+__pycache__/
+go2rtc
+*.v[0-9]*.bak

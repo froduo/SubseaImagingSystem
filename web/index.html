@@ -1,0 +1,1909 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>水下成像巡检取证系统 v15</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#0b0f14;color:#d7e3ee;
+    font-family:"Microsoft YaHei",Consolas,monospace;font-size:13px;overflow:hidden}
+  #app{display:flex;flex-direction:column;height:100%}
+  /* ===== 顶部工具条 ===== */
+  #toolbar{display:flex;align-items:center;gap:7px;padding:6px 10px;background:#111a23;
+    border-bottom:1px solid #22303f;flex-wrap:wrap}
+  #toolbar .title{color:#6cc0ff;font-weight:bold;font-size:14px;margin-right:6px}
+  .pill{padding:3px 9px;border-radius:10px;background:#1b2733;border:1px solid #2b3d4f;white-space:nowrap}
+  .pill.ok{background:#12351f;border-color:#1f6f3f;color:#7ee2a8}
+  .pill.bad{background:#3a1618;border-color:#7a2b30;color:#ff9aa0}
+  button{background:#1f6feb;color:#fff;border:0;padding:5px 10px;border-radius:5px;
+    cursor:pointer;font-size:12px}
+  button:hover{filter:brightness(1.15)}
+  button:disabled{background:#2a3440;color:#5c6b78;cursor:not-allowed}
+  button.sec{background:#2b3a4a} button.warn{background:#8a5a00}
+  button.danger{background:#a03030} button.active{background:#0f7b45}
+  /* ===== 主体: 热像仪 | 可见光 | 控制面板 (对齐 mainLayout) ===== */
+  #main{flex:1;display:flex;min-height:0}
+  .col{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid #22303f}
+  #colThermal{flex:0 0 26%}
+  #colVisible{flex:1 1 auto}
+  .col>h3{margin:0;padding:5px 9px;background:#0f1922;color:#9fc4e8;font-size:12px;
+    font-weight:normal;border-bottom:1px solid #22303f}
+  .col>h3 span{color:#6f8296}
+  .stage{position:relative;flex:1;background:#000;overflow:hidden;min-height:0}
+  .stage video{width:100%;height:100%;object-fit:contain;display:block}
+  .stage canvas{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+  .badge{position:absolute;right:6px;top:6px;background:rgba(0,0,0,.62);padding:3px 7px;
+    border-radius:4px;font-size:11px;color:#9fe08a;line-height:1.5}
+  .badge b{color:#fff}
+  .badge:empty{display:none}   /* 空角标不占位: 已连接时隐藏, 右上角只留画面内的检测状态 */
+  #v-thermal{cursor:crosshair} /* 热像仪画面: 鼠标探针 */
+  /* 热源信息框 (对齐 thermalInfoBox) */
+  #thermalInfo{background:#0f1922;border-top:1px solid #22303f;padding:6px 9px}
+  #thermalInfo .kv{display:flex;justify-content:space-between;padding:1px 0}
+  #thermalInfo .kv span{color:#8aa0b4}
+  #thermalInfo .kv b{color:#e8f1fa;font-size:14px}
+  #visInfo{background:#0f1922;border-top:1px solid #22303f;padding:5px 9px;font-size:11px;
+    color:#8aa0b4;display:flex;gap:14px;flex-wrap:wrap}
+  /* ===== 控制面板 (对齐 controlPanel) ===== */
+  #panel{flex:0 0 322px;display:flex;flex-direction:column;background:#0e1620;min-width:0}
+  #tabs{display:flex;background:#111a23;border-bottom:1px solid #22303f;flex-wrap:wrap}
+  #tabs div{padding:6px 9px;cursor:pointer;color:#8aa0b4;font-size:12px;border-right:1px solid #22303f}
+  #tabs div.on{color:#fff;background:#16222e;border-bottom:2px solid #1f6feb}
+  .tabbody{flex:1;overflow-y:auto;padding:9px}
+  .grp{border:1px solid #22303f;border-radius:6px;margin-bottom:9px;padding:8px}
+  .grp>h4{margin:0 0 7px;font-size:12px;color:#6cc0ff;font-weight:normal}
+  .row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+  .row label{color:#8aa0b4;min-width:56px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:#9fb3c6}
+  .kv b{color:#e8f1fa}
+  input[type=number],input[type=text],select{background:#0a1219;color:#d7e3ee;
+    border:1px solid #22303f;border-radius:4px;padding:3px 6px;font-size:12px}
+  input[type=range]{flex:1}
+  #log{height:104px;overflow-y:auto;background:#0a1219;border:1px solid #22303f;
+    border-radius:4px;padding:5px;font-size:11px;color:#8fa6ba;white-space:pre-wrap}
+  /* ===== 底部状态栏 (对齐 statusBar) ===== */
+  #statusbar{display:flex;gap:14px;align-items:center;padding:5px 10px;background:#111a23;
+    border-top:1px solid #22303f;font-size:12px;flex-wrap:wrap}
+  #statusbar .k{color:#6f8296} #statusbar .v{color:#e8f1fa}
+  
+  .hint{color:#ffb86b;font-size:11px;line-height:1.55;margin-top:4px}
+  .hint.ok{color:#7ee2a8} .hint.gray{color:#7d8fa3}
+  /* 状态文字配色 (连接/断开 联动提示) */
+  .st-ok{color:#7ee2a8 !important} .st-bad{color:#ff9aa0 !important}
+  .st-wait{color:#ffb86b !important}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="main">
+    <!-- ========== 左: 热源监测图像 + 热源信息框 ========== -->
+    <div class="col" id="colThermal">
+      <h3>热源监测图像 <span>640×512</span></h3>
+      <div class="stage">
+        <video id="v-thermal" autoplay muted playsinline></video>
+        <canvas id="c-thermal"></canvas>
+        <div class="badge" id="b-thermal">连接中…</div>
+      </div>
+      <div id="thermalInfo">
+        <div class="kv"><span>ΔX</span><b id="labelDeltaX">--</b></div>
+        <div class="kv"><span>ΔY</span><b id="labelDeltaY">--</b></div>
+        <div class="kv"><span>距离</span><b id="labelDistance">--</b></div>
+        <div class="kv"><span>最高温度</span><b id="labelMaxTemp">--</b></div>
+        <div class="kv"><span>目标距中心像素差</span><b id="labelPixDiff">--</b></div>
+        <div class="kv"><span>鼠标坐标 / 温度</span><b id="probeInfo">--</b></div>
+      </div>
+    </div>
+
+    <!-- ========== 中: 可见光监测图像 ========== -->
+    <div class="col" id="colVisible">
+      <h3>可见光监测图像 <span id="visInfoTitle">· 请选择码流</span></h3>
+      <div class="stage">
+        <video id="v-visible" autoplay muted playsinline></video>
+        <canvas id="c-visible"></canvas>
+        <div class="badge" id="b-visible">连接中…</div>
+      </div>
+      <div id="visInfo">
+        <span id="visCodec">编码 -</span><span id="visRes">分辨率 -</span>
+        <span id="visFps">帧率 -</span><span id="visJb">缓冲 -</span>
+      </div>
+    </div>
+
+    <!-- ========== 右: 控制面板 (4 Tab, 对齐 setupControlTabs) ========== -->
+    <div id="panel">
+      <div id="tabs">
+        <div class="on" data-t="detect">热源检测</div>
+        <div data-t="visible">可见光控制</div>
+        <div data-t="laser">红外激光</div>
+        <div data-t="tcp">TCP服务器</div>
+      </div>
+      <div class="tabbody">
+
+        <!-- ===== Tab1 热源检测 (对齐 groupDetect) ===== -->
+        <div class="tab" data-t="detect">
+          <div class="grp">
+            <h4>热像仪连接</h4>
+            <div class="row">
+              <button id="btnThConn" onclick="connectThermal()">连接热像仪</button>
+              <button class="sec" id="btnThDisc" onclick="disconnectThermal()" disabled>断开</button>
+            </div>
+            <div class="kv"><span>状态</span><b id="thStatus">-</b></div>
+          </div>
+          <div class="grp">
+            <h4>检测参数（与本地程序同源）</h4>
+            <div class="row"><label>启用检测</label>
+              <select id="d-enable"><option value="true">开</option><option value="false">关</option></select></div>
+            <div class="row"><label>检测模式</label>
+              <select id="d-manual"><option value="true">手动(最低温度+最小面积)</option>
+                <option value="false">自动(环境温度+增量)</option></select></div>
+            <div class="row"><label>最低温度</label>
+              <input type="number" id="d-mintemp" step="0.5" style="width:78px"> °C</div>
+            <div class="row"><label>温度增量</label>
+              <input type="number" id="d-delta" step="0.5" style="width:78px"> °C</div>
+            <div class="row"><label>最小面积</label>
+              <input type="number" id="d-minarea" step="1" style="width:78px"> px</div>
+            <div class="row"><label>最大目标数</label>
+              <input type="number" id="d-maxsrc" step="1" style="width:78px"></div>
+            <div class="row"><label>网格显示</label>
+              <select id="d-grid"><option value="true">开</option><option value="false">关</option></select></div>
+            <div class="row">
+              <button onclick="saveDetect()">保存配置</button>
+              <button class="sec" onclick="loadDetect()">重新读取</button>
+            </div>
+            <div class="hint" id="d-hint">参数写入设备侧 config/default.ini, <b>需重启程序生效</b>;
+              网页端检测立即按新参数执行。</div>
+          </div>
+          <div class="grp">
+            <h4>检测结果</h4>
+            <div class="kv"><span>候选热源</span><b id="d-cands">-</b></div>
+            <div class="kv"><span>目标</span><b id="d-target">-</b></div>
+            <div class="kv"><span>目标最高温</span><b id="d-temp">-</b></div>
+            <div class="kv"><span>目标面积</span><b id="d-area">-</b></div>
+            <div class="kv"><span>目标像素坐标</span><b id="d-xy">-</b></div>
+            <div class="kv"><span>当前阈值</span><b id="d-thr">-</b></div>
+            <div class="hint gray" id="d-run">热像仪未连接，检测暂停</div>
+            <div class="hint gray" id="d-mask"></div>
+            <div class="hint gray">算法与本地程序完全一致(灰度→伪温度→阈值→开/闭运算→4邻域连通域→取最热)</div>
+          </div>
+        </div>
+
+        <!-- ===== Tab2 可见光控制 (对齐 setupVisibleControlPanel) ===== -->
+        <div class="tab" data-t="visible" style="display:none">
+          <div class="grp">
+            <h4>连接与码流</h4>
+            <div class="row">
+              <button id="btnVisConn" onclick="connectVisible()">连接可见光</button>
+              <button class="sec" id="btnVisDisc" onclick="disconnectVisible()" disabled>断开</button>
+            </div>
+            <div class="kv"><span>状态</span><b id="visStatus">-</b></div>
+            <div class="row"><label>拉取码流</label>
+              <select id="streamSel" onchange="setStream(this.value)">
+                <optgroup label="① 直转 · 服务端零编解码(需客户端 HEVC 硬解)">
+                  <option value="vis4k">主码流 4K 3840x2160 · H.265 直转</option>
+                  <option value="vis1080">第三码流 1080p · H.265 直转</option>
+                  <option value="vis102">子码流 704x576 · H.265 直转</option>
+                </optgroup>
+                <optgroup label="② 通用 · 服务端转 H.264(兼容所有浏览器)">
+                  <option value="vis4kh264">主码流 4K 3840x2160 · H.264 转码</option>
+                  <option value="vis1080h264" selected>第三码流 1080p · H.264 转码</option>
+                  <option value="vis102h264">子码流 704x576 · H.264 转码</option>
+                </optgroup>
+              </select>
+              <button class="sec" id="btn4kLive" onclick="go4k()" style="white-space:nowrap"
+                title="一键切到 4K 主码流实时显示: 客户端支持 HEVC 用直转(服务端零转码), 否则用 4K H.264 转码(通用浏览器)">4K 实时</button></div>
+            <div class="kv"><span>客户端 HEVC 直转</span><b id="hevcState">检测中…</b></div>
+
+            <!-- 帮助控件(合并): HEVC 直转说明 + 直转码流地址; 默认折叠(隐藏), 点开显示 -->
+            <details id="helpBox" style="margin-top:5px">
+              <summary id="helpSummary" style="cursor:pointer;color:#6cc0ff">帮助: 直转说明 / 直转码流地址 ▸</summary>
+              <div style="margin-top:5px">
+                <div class="hint" id="hevcHint"></div>
+                <div class="hint gray" style="line-height:1.7;margin-top:4px">
+                  <b>【一、Windows 客户端如何开启 HEVC 硬解直转】</b><br>
+                  1) <b>确认硬件能解 HEVC</b>：任务管理器 → 性能 → GPU，看是否有 “Video Decode” 引擎；
+                  或 <code>dxdiag</code> 查看显卡型号。Intel 6 代(2015 Skylake) / NVIDIA Pascal(GTX10 系) /
+                  AMD Vega 及以上均支持 HEVC 硬解。<br>
+                  2) <b>安装系统级 HEVC 解码器</b>：Microsoft Store 搜索 “HEVC”，安装
+                  「HEVC 视频扩展」(付费约 $0.99) 或「HEVC 视频扩展(来自设备制造商)」(OEM 机型免费)；
+                  命令行可用 <code>winget search HEVC</code> 定位包名。<br>
+                  3) <b>打开浏览器硬件加速</b>：<code>edge://settings/system</code> → 使用硬件加速 = 开。<br>
+                  4) 如需要：<code>edge://flags</code> 搜索 HEVC，若有相关项设为 Enabled。<br>
+                  5) <b>彻底重启浏览器</b>：任务管理器结束所有 <code>msedge.exe</code> 后重开(仅关窗口不够)。<br>
+                  6) <b>验证</b>：<code>edge://gpu</code> → “Video Acceleration Information” 应出现
+                  <code>hevc main / main10</code>；再刷新本页，「客户端 HEVC 直转」应变绿。<br>
+                  7) <b>仍不支持？</b>多为 <b>远程桌面(RDP)/虚拟机</b> 场景 —— 浏览器拿不到 GPU 硬解能力，
+                  请在<b>物理机</b>上直接打开；否则请使用②「通用(H.264)」转码流，或点上方「4K 实时」按钮。<br>
+                  8) <b>控制台自检</b>：F12 执行
+                  <code>RTCRtpReceiver.getCapabilities('video').codecs.map(c=>c.mimeType)</code>
+                  ，结果含 <code>video/H265</code> 即为支持。<br><br>
+                  <b>【二、更简单的办法：用 VLC 看直转流】</b><br>
+                  <b>VLC 自带 HEVC 解码，不需要安装「HEVC 视频扩展」，也不受浏览器策略限制</b>。
+                  直接用 VLC/mpv 打开下面「直转码流地址」里的 RTSP 链接即可
+                  (Windows 上装 VLC 桌面版；Jetson 本机已预装 VLC 3.0.9)。<br><br>
+                  <b>【三、服务端根治方案(推荐)】</b><br>
+                  把相机 102/103 的编码改为 H.264(相机自带编码器，不占 Jetson 资源)，
+                  则任何客户端都能直转，彻底不依赖客户端 HEVC 能力。<br><br>
+                  <b>【四、网页端 4K 实时显示】</b><br>
+                  ① 客户端支持 HEVC 硬解 → 选「主码流 4K · H.265 直转」(服务端零编解码, 延时最低);<br>
+                  ② 任意浏览器 → 点「4K 实时」按钮或选「主码流 4K · H.264 转码」
+                  (Jetson NVENC 硬转, 约 16 Mbps, 需客户端能解 4K H.264)。
+                </div>
+                <!-- 直转码流地址 (VLC/mpv 直接打开) -->
+                <div id="rtspList" class="hint gray" style="line-height:1.6;margin-top:8px"></div>
+              </div>
+            </details>
+          </div>
+          <div class="grp">
+            <h4>云台</h4>
+            <div class="grid3">
+              <span></span>
+              <button class="sec" onpointerdown="ptz(0,1,0)" onpointerup="ptzStop()">▲</button>
+              <span></span>
+              <button class="sec" onpointerdown="ptz(-1,0,0)" onpointerup="ptzStop()">◀</button>
+              <button class="sec" onpointerdown="ptz(0,-1,0)" onpointerup="ptzStop()">▼</button>
+              <button class="sec" onpointerdown="ptz(1,0,0)" onpointerup="ptzStop()">▶</button>
+            </div>
+            <div class="row" style="margin-top:7px"><label>速度</label>
+              <input type="range" id="ptzSpeed" min="10" max="100" value="40">
+              <span id="ptzSpeedV">40</span></div>
+          </div>
+          <div class="grp">
+            <h4>镜头参数</h4>
+            <div class="row"><label>调焦</label>
+              <button class="sec" onpointerdown="zoom(1)" onpointerup="ptzStop()">＋拉近</button>
+              <button class="sec" onpointerdown="zoom(-1)" onpointerup="ptzStop()">－拉远</button>
+              <span style="margin-left:auto">倍率 <b id="vZoom">-</b></span></div>
+            <div class="row"><label>聚焦</label>
+              <button class="sec" onclick="focus(1)">更远 ＋</button>
+              <button class="sec" onclick="focus(-1)">更近 －</button>
+              <span style="margin-left:auto"><b id="vFocus">-</b></span></div>
+            <div class="row"><label>光圈</label>
+              <button class="sec" onclick="irisStep(1)">开大 ＋</button>
+              <button class="sec" onclick="irisStep(-1)">关小 －</button>
+              <span style="margin-left:auto">Iris <b id="vIris">-</b></span></div>
+            <div class="row"><label>增益</label>
+              <button class="sec" onclick="gainStep(10)">＋10</button>
+              <button class="sec" onclick="gainStep(-10)">－10</button>
+              <span style="margin-left:auto">Gain <b id="vGain">-</b></span></div>
+            <div class="row"><label>曝光</label>
+              <button class="sec" onclick="exposure('auto')">自动</button>
+              <button class="sec" onclick="exposure('manual')">手动</button></div>
+            <div class="hint gray">该机芯无"聚焦±步进", 按最小聚焦距离档位步进(与本地一致);
+              改光圈/增益会先切手动曝光。</div>
+          </div>
+          <div class="grp">
+            <h4>图像参数</h4>
+            <div class="row"><label>日夜</label>
+              <button class="sec" onclick="ircut('day')">白天</button>
+              <button class="sec" onclick="ircut('night')">夜晚</button>
+              <button class="sec" onclick="ircut('auto')">自动</button>
+              <span style="margin-left:auto"><b id="vIrcut">-</b></span></div>
+          </div>
+          <div class="grp">
+            <h4>录像取证</h4>
+            <div class="row"><label>码流</label>
+              <select id="recStream" style="flex:1">
+                <option value="vis1080h264">可见光 1080p 通用(H.264)</option>
+                <option value="vis1080">可见光 1080p 原始(H.265 1Mbps)</option>
+                <option value="vis4k">可见光 4K 原始(H.265 12Mbps)</option>
+                <option value="vis102">可见光子码流 704x576</option>
+                <option value="thermal">热像仪 640x512</option>
+              </select></div>
+            <div class="row"><button class="warn" id="bRec2" onclick="toggleRec()">开始录像</button>
+              <button onclick="snapshot()">抓图</button></div>
+            <div class="kv"><span>当前文件</span><b id="vRecFile">-</b></div>
+            <div id="snapList" style="font-size:11px;color:#9fb3c6;margin-top:4px"></div>
+          </div>
+        </div>
+
+        <!-- ===== Tab3 红外激光 (对齐 setupLaserControlPanel) ===== -->
+        <div class="tab" data-t="laser" style="display:none">
+          <div class="grp">
+            <h4>连接</h4>
+            <div id="l-msg" class="hint">未连接 —— 点击下方「连接激光」</div>
+            <div class="row"><label>串口</label>
+              <select id="l-port" style="flex:1">
+                <option value="/dev/ir_laser">/dev/ir_laser</option>
+                <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
+              </select></div>
+            <div class="row">
+              <button id="btnLaserConn" onclick="laserOpen()">连接激光</button>
+              <button class="sec" id="btnLaserDisc" onclick="laserClose()" disabled>断开</button>
+            </div>
+            <div class="kv"><span>串口状态</span><b id="l-occ">-</b></div>
+          </div>
+          <div class="grp">
+            <h4>激光器控制</h4>
+            <div class="row">
+              <button class="sec" id="l-ang-up" onpointerdown="laserAngHold(1)" onpointerup="laserAngStop()" onpointerleave="laserAngStop()" onpointercancel="laserAngStop()" disabled>光斑角度+</button>
+              <button class="sec" id="l-ang-dn" onpointerdown="laserAngHold(-1)" onpointerup="laserAngStop()" onpointerleave="laserAngStop()" onpointercancel="laserAngStop()" disabled>光斑角度-</button>
+              <span style="margin-left:auto">光斑角度 <b id="l-ang">-</b></span>
+            </div>
+            <div class="row">
+              <button class="sec" id="l-bri-up" onpointerdown="laserBriHold(1)" onpointerup="laserBriStop()" onpointerleave="laserBriStop()" onpointercancel="laserBriStop()" disabled>亮度+</button>
+              <button class="sec" id="l-bri-dn" onpointerdown="laserBriHold(-1)" onpointerup="laserBriStop()" onpointerleave="laserBriStop()" onpointercancel="laserBriStop()" disabled>亮度-</button>
+              <span style="margin-left:auto">亮度 <b id="l-bri">-</b></span>
+            </div>
+            <div class="row">
+              <button id="btnLaserOn" class="danger" onclick="laserOn()" disabled>开启激光</button>
+              <button id="btnLaserOff" onclick="laserOff()" disabled>关闭激光</button>
+              <span style="margin-left:auto">激光:<b id="l-sw">-</b></span>
+            </div>
+            <div class="hint gray">
+              光斑角度 2°~65°;  2° = 远角(有效距离 > 800m, 光斑直径 < 21m)<br>
+              光斑角度即光斑大小: 数值越大光斑越大、作用距离越近
+            </div>
+          </div>
+          <div class="grp">
+            <h4>状态</h4>
+            <div class="row">
+              <button class="sec" id="l-query" onclick="laserQuery()" disabled>读状态</button>
+              <button class="sec" id="l-reset" onclick="laserReset()" disabled>电机复位</button>
+            </div>
+            <div class="kv"><span>行程位置</span><b id="l-pos">-</b></div>
+            <div class="kv"><span>激光控制</span><b>v8</b></div>
+          </div>
+          <div class="grp">
+            <h4>Pelco_D 命令表（与程序一致, 已接入）</h4>
+            <div class="hint gray">
+              开光 01 01 01 00 / 关光 01 01 00 00<br>
+              亮度+ 01 02 00 00 / 亮度- 01 02 01 00 / 设亮度 01 03 vv 00<br>
+              角度+ 01 04 01 st / 角度- 01 04 00 st / 设位置 01 05 hi lo<br>
+              电机复位 01 06 00 00 / 查询 02 01(开关) 02 03(亮度) 02 05(位置) 09 01(角度)<br>
+              光斑角度 = 行程位置 0x0000~0x4000 的标定映射(现场实测 9 点)
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Tab4 TCP服务器 (对齐 groupTcp) ===== -->
+        <div class="tab" data-t="tcp" style="display:none">
+          <div class="grp">
+            <h4>服务状态</h4>
+            <div class="kv"><span>端口</span><b id="t-port">-</b></div>
+            <div class="kv"><span>监听中</span><b id="t-listen">-</b></div>
+            <div class="kv"><span>服务来源</span><b id="t-src">网关自带</b></div>
+            <div class="kv"><span>客户端数</span><b id="t-clients">-</b></div>
+            <div class="kv"><span>网关桥接</span><b id="t-bridge">-</b></div>
+            <div class="row" style="margin-top:6px">
+              <button id="btnTcpStart" onclick="tcpStart()">启动TCP</button>
+              <button class="sec" id="btnTcpStop" onclick="tcpStop()" disabled>停止TCP</button>
+              <button class="sec" onclick="loadTcp()">刷新</button>
+            </div>
+            <div class="hint" id="t-hint"></div>
+          </div>
+          <div class="grp">
+            <h4>发送控制指令（与程序同一指令集）</h4>
+            <div class="row">
+              <input type="text" id="t-cmd" style="flex:1"
+                placeholder="zoom + | focus - | iris + | ptz left 300 | stop | status">
+              <button onclick="sendCmd()">发送</button>
+            </div>
+            <div class="row">
+              <button class="sec" onclick="quick('zoom +')">调焦+</button>
+              <button class="sec" onclick="quick('zoom -')">调焦-</button>
+              <button class="sec" onclick="quick('focus +')">聚焦+</button>
+              <button class="sec" onclick="quick('focus -')">聚焦-</button>
+              <button class="sec" onclick="quick('iris +')">光圈+</button>
+              <button class="sec" onclick="quick('iris -')">光圈-</button>
+              <button class="sec" onclick="quick('stop')">停止</button>
+              <button class="sec" onclick="quick('status')">状态</button>
+            </div>
+            <div class="kv"><span>最近应答</span><b id="t-resp">-</b></div>
+          </div>
+          <div class="grp">
+            <h4>交互日志</h4>
+            <div id="log"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div id="statusbar">
+    <span><span class="k">可见光</span> <span class="v" id="sbVis">-</span></span>
+    <span><span class="k">热像仪</span> <span class="v" id="sbTh">-</span></span>
+    <span><span class="k">码流</span> <span class="v" id="sbStream">-</span></span>
+    <span><span class="k">检测</span> <span class="v" id="sbDet">-</span></span>
+    <span><span class="k">录制</span> <span class="v" id="sbRec">-</span></span>
+    <span style="flex:1"></span>
+    <span class="k">版本 v15</span>
+  </div>
+</div>
+
+<script>
+window.addEventListener('error', function(e){
+  var el = document.getElementById('l-msg');
+  if (el){ el.textContent = '页面JS错误: ' + (e.message || e.type); el.className = 'hint'; }
+});
+/* 顶部工具条已按需求移除; 这里为已删除的控件提供哑对象, 避免空引用报错 */
+(function(){
+  var REMOVED = ['pCam','pTh','pProg','pRec','bRec','bRec2',
+                 'b-h264-1080','b-h264-4k','b-h265-1080','b-102'];
+  var orig = document.getElementById.bind(document);
+  var dummy = {
+    classList: {add:function(){}, remove:function(){}, toggle:function(){},
+                contains:function(){ return false; }},
+    style: {}, dataset: {}, disabled: true, value: '', textContent: '', innerHTML: '',
+    setAttribute: function(){}, addEventListener: function(){}
+  };
+  document.getElementById = function(id){
+    var el = orig(id);
+    if (el) return el;
+    return (REMOVED.indexOf(id) >= 0) ? dummy : null;
+  };
+})();
+
+/* ============================================================
+   数据源分离: 视频走 go2rtc(1984), 控制走本网关(同源)
+============================================================ */
+var GOP2RTC = location.protocol + '//' + location.hostname + ':1984';
+var GW = location.origin;
+
+/* ============================================================
+   检测参数 (与 heatsourcedetector.h 默认值一致) + 角度常量
+============================================================ */
+var DET = {
+  enable: true, manual: true,
+  minTemp: 44.0, delta: 10.0, envTemp: 25.0,
+  minAreaPx: 50, minArea: 50, maxSrc: 5,
+  grid: true
+};
+var HFOV = 24.2, VFOV = 19.4, IMW = 640, IMH = 512;
+
+/* ============================================================
+   右侧"温度-亮度"色条屏蔽带 (修: 色条被误识别为热源)
+   ------------------------------------------------------------
+   热像仪画面最右侧有一条约 20px 的标定色条(由浅到深), 其整列亮度较高,
+   二值化后会与真实热源一起进入连通域, 被判为独立热源。
+   实测(640x512 主码流, 阈值 44°C): 色条占 x = 617..637, 连通域 box=(617,y,21,h),
+   面积约 4146px —— 与 Qt 端算法一致, 故在此按"列"整体屏蔽。
+   默认屏蔽最右 24 列; 可用 URL 参数覆盖:  ?barmask=32   (0 = 关闭屏蔽)
+============================================================ */
+var BAR_MASK_PX = (function(){
+  var m = /[?&]barmask=(\d+)/.exec(location.search);
+  if (!m) return 24;                         /* 默认: 屏蔽最右 24 列 */
+  var v = parseInt(m[1], 10);
+  return (isNaN(v) || v < 0) ? 0 : v;
+})();
+function maskRightBar(bin, w, h, px){
+  if (!px) return;
+  var x0 = Math.max(0, w - px);
+  for (var y = 0; y < h; y++){
+    var base = y * w;
+    for (var x = x0; x < w; x++) bin[base + x] = 0;
+  }
+}
+var LAST_TH_STATS = null;      /* 热像仪分辨率/帧率(不再显示在右上角角标) */
+
+/* ============================================================
+   热像仪鼠标探针: 仅在鼠标位于热像仪画面内时显示 坐标 + 温度
+   ------------------------------------------------------------
+   · 画面按 object-fit: contain 显示, 可能带黑边, 需按 contain 几何换算到源像素坐标;
+   · 取像素用独立 1x1 画布, 直接从 <video> 取该点(不依赖检测是否开启, 也不整帧重绘);
+   · 灰度公式与热源检测完全一致: g = (r*11 + g*16 + b*5) >> 5
+     温度换算与检测同源:          温度 = -20 + g/255 * 170
+============================================================ */
+var TH_PROBE = {active:false, x:-1, y:-1, temp:NaN};
+var _probeCv = null, _probeCtx = null, _probeDrawMs = 0;
+
+function thermalContainRect(){
+  var v = el('v-thermal');
+  if (!v || !v.videoWidth || !v.videoHeight) return null;   /* 未连接/无画面 */
+  var r = v.getBoundingClientRect();
+  if (!r.width || !r.height) return null;
+  var s = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+  return {vw: v.videoWidth, vh: v.videoHeight, s: s,
+          ox: r.left + (r.width  - v.videoWidth  * s) / 2,
+          oy: r.top  + (r.height - v.videoHeight * s) / 2};
+}
+function thermalPixelTemp(ix, iy){
+  var v = el('v-thermal');
+  if (!v || !v.videoWidth) return null;
+  if (!_probeCv){
+    _probeCv = document.createElement('canvas');
+    _probeCv.width = 1; _probeCv.height = 1;
+    _probeCtx = _probeCv.getContext('2d', {willReadFrequently: true});
+  }
+  try {
+    _probeCtx.clearRect(0, 0, 1, 1);
+    _probeCtx.drawImage(v, ix, iy, 1, 1, 0, 0, 1, 1);   /* 只取该像素 */
+    var d = _probeCtx.getImageData(0, 0, 1, 1).data;
+    var gray = (d[0] * 11 + d[1] * 16 + d[2] * 5) >> 5;
+    return -20.0 + gray / 255.0 * 170.0;
+  } catch (e) { return null; }
+}
+function updateThermalProbeLabel(){
+  var e = el('probeInfo');
+  if (!e) return;
+  e.textContent = (TH_PROBE.active && !isNaN(TH_PROBE.temp))
+      ? ('(' + TH_PROBE.x + ', ' + TH_PROBE.y + ')   ' + TH_PROBE.temp.toFixed(1) + ' °C')
+      : '--';
+}
+function onThermalProbeMove(ev){
+  var g = thermalContainRect();
+  if (!g){ onThermalProbeLeave(); return; }
+  var ix = Math.floor((ev.clientX - g.ox) / g.s);
+  var iy = Math.floor((ev.clientY - g.oy) / g.s);
+  if (ix < 0 || iy < 0 || ix >= g.vw || iy >= g.vh){ onThermalProbeLeave(); return; }
+  var t = thermalPixelTemp(ix, iy);
+  TH_PROBE.active = true;
+  TH_PROBE.x = ix;
+  TH_PROBE.y = iy;
+  TH_PROBE.temp = (t === null) ? NaN : t;
+  updateThermalProbeLabel();
+  /* 叠加层重绘节流到 ~20fps(鼠标移动会高频触发) */
+  var now = Date.now();
+  if (now - _probeDrawMs >= 50){ _probeDrawMs = now; renderThermalOverlay(DET_RESULT); }
+}
+function onThermalProbeLeave(){
+  if (!TH_PROBE.active) return;
+  TH_PROBE.active = false;
+  updateThermalProbeLabel();
+  renderThermalOverlay(DET_RESULT);       /* 立即擦除探针标记 */
+}
+var CXR = IMW / 2, CYR = IMH / 2;
+var DEG_H = HFOV / IMW, DEG_V = VFOV / IMH;
+
+var PC = {}, LAST_OK = null, CUR = null, SNAP = [];
+/* ===== 链路状态统一模型: 连接/断开按钮联动与状态文案的唯一数据源 =====
+   state: idle(未连接) | connecting(连接中) | connected(已连接) | failed(失败) | disconnected(断线)
+   规则: 任何状态变化都必须经 render* 函数刷新界面, 保证"按钮/文案/画面"三者一致。 */
+var LINK = { thermal:{state:'idle'}, visible:{state:'idle'} };
+var CAM_OK = null;                       /* 相机 ISAPI 是否可达 (null = 未知) */
+var REC = {on:false, busy:false};        /* 录像真实状态 + 操作中标志 */
+var TCPBUSY = false;                     /* TCP 服务器启停操作中 */
+
+function el(id){ return document.getElementById(id); }
+function setBtn(id, enabled, text){
+  var e = el(id); if (!e) return;
+  e.disabled = !enabled;
+  if (text !== undefined) e.textContent = text;
+}
+function setTxt(id, t){ var e = el(id); if (e) e.textContent = t; }
+function setCls(id, cls, t){
+  var e = el(id); if (!e) return;
+  if (cls) e.className = cls;
+  if (t !== undefined) e.textContent = t;
+}
+var LINK_TEXT = {idle:'未连接', connecting:'连接中…', connected:'已连接',
+                 failed:'连接失败', disconnected:'已断开'};
+function linkText(kind){ return LINK_TEXT[LINK[kind].state] || '未连接'; }
+var OV = null, OVG = null;          /* 离屏 canvas, 2d ctx */
+
+/* ============================================================
+   与 heatsourcedetector.cpp 逐行一致的形态学
+============================================================ */
+function erodeN(src, dst, w, h, radius){
+  dst.fill(0);
+  if (radius < 1){ dst.set(src); return; }
+  for (var y = radius; y < h - radius; y++){
+    for (var x = radius; x < w - radius; x++){
+      var allOne = true;
+      for (var dy = -radius; dy <= radius && allOne; dy++){
+        for (var dx = -radius; dx <= radius && allOne; dx++){
+          if (!src[(y + dy) * w + (x + dx)]) allOne = false;
+        }
+      }
+      dst[y * w + x] = allOne ? 255 : 0;
+    }
+  }
+}
+function dilateN(src, dst, w, h, radius){
+  dst.fill(0);
+  if (radius < 1){ dst.set(src); return; }
+  for (var y = radius; y < h - radius; y++){
+    for (var x = radius; x < w - radius; x++){
+      var hasOne = false;
+      for (var dy = -radius; dy <= radius && !hasOne; dy++){
+        for (var dx = -radius; dx <= radius && !hasOne; dx++){
+          if (src[(y + dy) * w + (x + dx)]) hasOne = true;
+        }
+      }
+      dst[y * w + x] = hasOne ? 255 : 0;
+    }
+  }
+}
+function morphOpen(bin, w, h){
+  var tmp = new Uint8Array(w * h);
+  erodeN(bin, tmp, w, h, 2);     /* OPEN_RADIUS = 2 */
+  dilateN(tmp, bin, w, h, 2);
+}
+function morphClose(bin, w, h){
+  var tmp = new Uint8Array(w * h);
+  dilateN(bin, tmp, w, h, 1);
+  erodeN(tmp, bin, w, h, 1);
+}
+
+/* ============================================================
+   与 connectedComponents() 一致的 4-邻域 BFS 连通域
+============================================================ */
+function connectedComponents(temp, binary, w, h, minArea){
+  var size = w * h;
+  var labels = new Int32Array(size);
+  var out = [];
+  var stack = new Int32Array(size);
+  for (var y = 0; y < h; y++){
+    for (var x = 0; x < w; x++){
+      var idx = y * w + x;
+      if (binary[idx] && labels[idx] === 0){
+        var sp = 0;
+        stack[sp++] = idx;
+        labels[idx] = 1;
+        var minX = x, maxX = x, minY = y, maxY = y;
+        var sumTemp = 0, maxT = temp[idx], cnt = 0;
+        while (sp > 0){
+          var ci = stack[--sp];
+          var cx = ci % w, cy = (ci / w) | 0;
+          cnt++;
+          sumTemp += temp[ci];
+          if (temp[ci] > maxT) maxT = temp[ci];
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          if (cy < minY) minY = cy;
+          if (cy > maxY) maxY = cy;
+          /* 4-connectivity */
+          if (cx > 0)     { var n1 = ci - 1; if (binary[n1] && !labels[n1]){ labels[n1]=1; stack[sp++]=n1; } }
+          if (cx < w - 1) { var n2 = ci + 1; if (binary[n2] && !labels[n2]){ labels[n2]=1; stack[sp++]=n2; } }
+          if (cy > 0)     { var n3 = ci - w; if (binary[n3] && !labels[n3]){ labels[n3]=1; stack[sp++]=n3; } }
+          if (cy < h - 1) { var n4 = ci + w; if (binary[n4] && !labels[n4]){ labels[n4]=1; stack[sp++]=n4; } }
+        }
+        if (cnt >= minArea){
+          out.push({
+            maxTemp: maxT, avgTemp: sumTemp / cnt,
+            centerX: ((minX + maxX) / 2) | 0, centerY: ((minY + maxY) / 2) | 0,
+            boundingBoxX: minX, boundingBoxY: minY,
+            boundingBoxW: maxX - minX + 1, boundingBoxH: maxY - minY + 1,
+            area: cnt
+          });
+        }
+      }
+    }
+  }
+  out.sort(function(a, b){ return b.area - a.area; });   /* 按面积降序 */
+  while (out.length > DET.maxSrc) out.pop();              /* 保留前 N */
+  return out;
+}
+
+/* ============================================================
+   与 detect() 一致
+============================================================ */
+function detect(temp, w, h){
+  var size = w * h;
+  var threshold = DET.manual ? DET.minTemp : (DET.envTemp + DET.delta);
+  var minArea = DET.manual ? DET.minAreaPx : DET.minArea;
+
+  var bin = new Uint8Array(size);
+  for (var i = 0; i < size; i++) bin[i] = (temp[i] > threshold) ? 255 : 0;
+  maskRightBar(bin, w, h, BAR_MASK_PX);   /* 先屏蔽温度条, 防止与热源被形态学"连成一片" */
+  morphOpen(bin, w, h);
+  morphClose(bin, w, h);
+  maskRightBar(bin, w, h, BAR_MASK_PX);   /* 形态学后再屏蔽一次(膨胀可能向右侧回收) */
+  var srcs = connectedComponents(temp, bin, w, h, minArea);
+  srcs.thresholdUsed = threshold;
+  return srcs;
+}
+/* 与 findHottest() 一致 */
+function findHottest(srcs){
+  if (!srcs || srcs.length === 0) return null;
+  var hot = srcs[0];
+  for (var i = 0; i < srcs.length; i++) if (srcs[i].maxTemp > hot.maxTemp) hot = srcs[i];
+  return hot;
+}
+/* 与 AngleCalculator::calculate() 一致 (注意 Y 轴翻转) */
+function calcAngle(cx, cy, maxTemp){
+  var dX = (cx - CXR) * DEG_H;
+  var dY = (CYR - cy) * DEG_V;
+  return {deltaX: dX, deltaY: dY, distance: Math.sqrt(dX*dX + dY*dY),
+          valid: true, sourceX: cx, sourceY: cy, maxTemp: maxTemp};
+}
+
+/* ============================================================
+   检测主循环 (10Hz, 与 m_detectionTimer 100ms 一致)
+============================================================ */
+var DET_RESULT = {sources: [], target: null, angle: null, threshold: null};
+
+function runDetection(){
+  var v = document.getElementById('v-thermal');
+  if (!v || !v.videoWidth || !DET.enable || !OV){
+    /* 检测关闭时仍重绘叠加层: 保证网格与鼠标探针可用 */
+    if (!DET.enable) renderThermalOverlay(DET_RESULT);
+    return;
+  }
+  var w = IMW, h = IMH;
+  OVG.drawImage(v, 0, 0, w, h);                     /* 热像仪原生 640x512, 无缩放误差 */
+  var data;
+  try { data = OVG.getImageData(0, 0, w, h).data; }
+  catch (e) { return; }                             /* 极端情况下(CORS)直接跳过 */
+  var n = w * h;
+  var temp = new Float32Array(n);
+  for (var i = 0; i < n; i++){
+    var o = i * 4;
+    /* Qt Format_Grayscale8 的整数近似: (R*11 + G*16 + B*5) / 32 */
+    var g = (data[o] * 11 + data[o+1] * 16 + data[o+2] * 5) >> 5;
+    temp[i] = -20.0 + (g / 255.0) * 170.0;          /* 与 updateDetection() 一致 */
+  }
+  var srcs = detect(temp, w, h);
+  var hot = findHottest(srcs);
+  var ang = hot ? calcAngle(hot.centerX, hot.centerY, hot.maxTemp) : null;
+  DET_RESULT = {sources: srcs, target: hot, angle: ang, threshold: srcs.thresholdUsed};
+  reportDetect(ang, hot);
+  renderThermalOverlay(DET_RESULT);
+  updateThermalInfo(ang);
+}
+
+/* ============================================================
+   叠加绘制 (对齐 renderThermal)
+============================================================ */
+var _lastReport = 0;
+function reportDetect(ang, hot){
+  var now = Date.now();
+  if (now - _lastReport < 200) return;      /* 5Hz 上报即可 */
+  _lastReport = now;
+  api('/api/report_detect', {
+    valid: !!(ang && ang.valid),
+    delta_x: ang ? +ang.deltaX.toFixed(3) : 0,
+    delta_y: ang ? +ang.deltaY.toFixed(3) : 0,
+    distance: ang ? +ang.distance.toFixed(3) : 0,
+    max_temp: hot ? +hot.maxTemp.toFixed(1) : 0,
+    source_x: ang ? ang.sourceX : 0,
+    source_y: ang ? ang.sourceY : 0
+  }).catch(function(){});
+}
+function renderThermalOverlay(res){
+  var cv = document.getElementById('c-thermal'), v = document.getElementById('v-thermal');
+  if (!cv || !cv.clientWidth) return;
+  if (cv.width !== cv.clientWidth || cv.height !== cv.clientHeight){
+    cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  }
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height);
+  var vw = v.videoWidth || IMW, vh = v.videoHeight || IMH;
+  var s = Math.min(cv.width / vw, cv.height / vh);
+  var ox = (cv.width - vw * s) / 2, oy = (cv.height - vh * s) / 2;
+  function TX(px){ return ox + px * s; }
+  function TY(py){ return oy + py * s; }
+
+  /* 网格 (对齐 m_gridEnabled) */
+  if (DET.grid){
+    g.strokeStyle = 'rgba(120,160,200,.22)'; g.lineWidth = 1;
+    for (var i = 1; i < 8; i++){
+      var gx = ox + (vw * s) * i / 8, gy = oy + (vh * s) * i / 8;
+      g.beginPath(); g.moveTo(gx, oy); g.lineTo(gx, oy + vh * s); g.stroke();
+      g.beginPath(); g.moveTo(ox, gy); g.lineTo(ox + vw * s, gy); g.stroke();
+    }
+  }
+  /* 温度条屏蔽带可视化: 暗罩 + 虚线边界, 明确提示该区域不参与检测 */
+  if (BAR_MASK_PX > 0){
+    var bx0 = ox + (vw - BAR_MASK_PX) * s;
+    g.fillStyle = 'rgba(255,140,0,.10)';
+    g.fillRect(bx0, oy, BAR_MASK_PX * s, vh * s);
+    g.strokeStyle = 'rgba(255,160,0,.65)'; g.lineWidth = 1;
+    if (g.setLineDash) g.setLineDash([4, 4]);
+    g.beginPath(); g.moveTo(bx0, oy); g.lineTo(bx0, oy + vh * s); g.stroke();
+    if (g.setLineDash) g.setLineDash([]);
+  }
+
+  /* 中心十字 + XY 标注 */
+  var cx = TX(vw / 2), cy = TY(vh / 2);
+  g.strokeStyle = 'rgba(80,255,120,.9)'; g.lineWidth = 1;
+  g.beginPath();
+  g.moveTo(cx, cy - 25); g.lineTo(cx, cy + 25);
+  g.moveTo(cx - 25, cy); g.lineTo(cx + 25, cy);
+  g.stroke();
+  g.fillStyle = 'rgba(80,255,120,.95)';
+  g.font = '10px Consolas';
+  g.fillText('X+', cx + 28, cy - 4);
+  g.fillText('X-', cx - 40, cy - 4);
+  g.fillText('Y+', cx + 4, cy - 28);
+  g.fillText('Y-', cx + 4, cy + 36);
+
+  /* 所有候选: 细黄框 */
+  g.strokeStyle = 'rgba(255,200,0,.95)'; g.lineWidth = 1;
+  (res.sources || []).forEach(function(src){
+    g.strokeRect(TX(src.boundingBoxX), TY(src.boundingBoxY),
+                 src.boundingBoxW * s, src.boundingBoxH * s);
+  });
+
+  /* 选中目标: 粗红框 + 十字 + 偏差连线 + 信息条 */
+  if (res.target){
+    var t = res.target;
+    var tx = TX(t.centerX), ty = TY(t.centerY);
+    g.strokeStyle = 'rgba(255,50,50,.98)'; g.lineWidth = 2;
+    g.strokeRect(TX(t.boundingBoxX), TY(t.boundingBoxY),
+                 t.boundingBoxW * s, t.boundingBoxH * s);
+    g.beginPath();
+    g.moveTo(tx - 8, ty); g.lineTo(tx + 8, ty);
+    g.moveTo(tx, ty - 8); g.lineTo(tx, ty + 8);
+    g.stroke();
+    if (t.centerX !== vw / 2 || t.centerY !== vh / 2){
+      g.strokeStyle = 'rgba(255,220,60,.95)'; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(cx, cy); g.lineTo(tx, ty); g.stroke();
+    }
+    var dxPix = t.centerX - 320, dyPix = t.centerY - 256;
+    var info = 'T=' + t.maxTemp.toFixed(1) + '°C  A=' + t.area +
+               'px  dX=' + dxPix + 'px  dY=' + dyPix + 'px';
+    g.font = '11px Consolas';
+    var boxW = g.measureText(info).width + 8;
+    var bx = Math.max(ox, Math.min(TX(t.boundingBoxX), ox + vw * s - boxW));
+    var by = Math.max(oy, TY(t.boundingBoxY) - 17);
+    g.fillStyle = 'rgba(0,0,0,.66)';
+    g.fillRect(bx, by, boxW, 15);
+    g.fillStyle = '#fff';
+    g.fillText(info, bx + 4, by + 11);
+  }
+
+  /* 鼠标探针: 十字 + 坐标/温度 (仅在热像仪画面内移动时显示) */
+  if (TH_PROBE.active && LINK.thermal.state === 'connected'){
+    var prx = TX(TH_PROBE.x) + s * 0.5;      /* +0.5 落到该像素中心 */
+    var pry = TY(TH_PROBE.y) + s * 0.5;
+    g.strokeStyle = 'rgba(255,255,0,.95)'; g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(prx - 9, pry); g.lineTo(prx + 9, pry);
+    g.moveTo(prx, pry - 9); g.lineTo(prx, pry + 9);
+    g.stroke();
+    var ptxt = '(' + TH_PROBE.x + ',' + TH_PROBE.y + ')  '
+             + (isNaN(TH_PROBE.temp) ? '--' : TH_PROBE.temp.toFixed(1) + '°C');
+    g.font = '11px Consolas';
+    var pbw = g.measureText(ptxt).width + 8;
+    var pbx = Math.min(Math.max(ox, prx + 12), ox + vw * s - pbw);
+    var pby = Math.min(Math.max(oy, pry - 18), oy + vh * s - 16);
+    g.fillStyle = 'rgba(0,0,0,.70)';
+    g.fillRect(pbx, pby, pbw, 15);
+    g.fillStyle = '#ffe066';
+    g.fillText(ptxt, pbx + 4, pby + 11);
+  }
+
+  /* 右上角状态条 */
+  var stText = res.target ? '检测到热源目标' : '未检测到热源目标';
+  g.font = 'bold 12px "Microsoft YaHei"';
+  var tw = g.measureText(stText).width + 14;
+  var sx = cv.width - tw - 6, sy = 6;
+  g.fillStyle = res.target ? 'rgba(0,130,0,.85)' : 'rgba(130,0,0,.85)';
+  g.fillRect(sx, sy, tw, 20);
+  g.fillStyle = '#fff';
+  g.fillText(stText, sx + 7, sy + 15);
+}
+
+/* 与 onHeatSourcesDetected / updateAngleDisplay 一致 */
+function updateThermalInfo(ang){
+  var eX = document.getElementById('labelDeltaX');
+  var eY = document.getElementById('labelDeltaY');
+  var eD = document.getElementById('labelDistance');
+  var eT = document.getElementById('labelMaxTemp');
+  var eP = document.getElementById('labelPixDiff');
+  var dT = document.getElementById('d-temp');
+  var dA = document.getElementById('d-area');
+  var dXy = document.getElementById('d-xy');
+  var dC = document.getElementById('d-cands');
+  var dTg = document.getElementById('d-target');
+  var dThr = document.getElementById('d-thr');
+
+  if (dC) dC.textContent = (DET_RESULT.sources || []).length + ' 个';
+  if (dThr) dThr.textContent = (DET_RESULT.threshold !== null &&
+                                DET_RESULT.threshold !== undefined)
+    ? DET_RESULT.threshold.toFixed(1) + ' °C' : '-';
+  renderDetectRun();      /* 状态栏「检测」与运行提示由统一渲染函数维护 */
+
+  if (!ang || !ang.valid){
+    if (eX) eX.textContent = '--';
+    if (eY) eY.textContent = '--';
+    if (eD) eD.textContent = '--';
+    if (eT) eT.textContent = '--';
+    if (eP) eP.textContent = '--';
+    if (eX) eX.style.cssText = '';
+    if (eY) eY.style.cssText = '';
+    if (eD) eD.style.cssText = '';
+    if (dT) dT.textContent = '-';
+    if (dA) dA.textContent = '-';
+    if (dXy) dXy.textContent = '-';
+    if (dTg) dTg.textContent = '未检测到';
+    return;
+  }
+  var dist = ang.distance;
+  var style = (dist < 2.0) ? 'color:#2ecc71;font-weight:bold;'
+                           : 'color:#ffd479;font-weight:bold;';
+  if (eX) { eX.textContent = ang.deltaX.toFixed(2) + '°'; eX.style.cssText = style; }
+  if (eY) { eY.textContent = ang.deltaY.toFixed(2) + '°'; eY.style.cssText = style; }
+  if (eD) { eD.textContent = dist.toFixed(2) + '°'; eD.style.cssText = style; }
+  if (eT) eT.textContent = ang.maxTemp.toFixed(1) + ' °C';
+  /* 目标距图像中心的像素差(图像坐标: 右为+ 下为+), 与 Qt 信息条一致 */
+  if (eP) eP.textContent = '(' + (ang.sourceX - 320) + ', ' + (256 - ang.sourceY) + ') px';
+  if (dT) dT.textContent = ang.maxTemp.toFixed(1) + ' °C';
+  if (dA && DET_RESULT.target) dA.textContent = DET_RESULT.target.area + ' px';
+  if (dXy) dXy.textContent = '(' + ang.sourceX + ', ' + ang.sourceY + ')';
+  if (dTg) dTg.textContent = '已确认 (中心 ' + ang.sourceX + ',' + ang.sourceY + ')';
+}
+
+
+/* ============================================================
+   视频: WHEP
+============================================================ */
+function whep(videoEl, name, hook){
+  var pc = new RTCPeerConnection({iceServers: []});
+  pc.addTransceiver('video', {direction:'recvonly'});
+  pc.ontrack = function(ev){ videoEl.srcObject = ev.streams[0]; };
+  if (hook) hook(pc);        /* 提前挂连接状态回调, 避免漏掉首个状态事件 */
+  return pc.createOffer()
+    .then(function(o){ return pc.setLocalDescription(o); })
+    .then(function(){
+      return new Promise(function(res){
+        if (pc.iceGatheringState === 'complete') return res();
+        var t = setTimeout(res, 1500);
+        pc.onicegatheringstatechange = function(){
+          if (pc.iceGatheringState === 'complete'){ clearTimeout(t); res(); }
+        };
+      });
+    })
+    .then(function(){
+      return fetch(GOP2RTC + '/api/webrtc?src=' + name, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({type:'offer', sdp: pc.localDescription.sdp})
+      });
+    })
+    .then(function(r){ if (!r.ok) throw new Error('WHEP HTTP ' + r.status); return r.json(); })
+    .then(function(a){ return pc.setRemoteDescription(new RTCSessionDescription(a)); })
+    .then(function(){ return pc; });
+}
+var STREAM_INFO = {
+  /* ① 直转(H.265, 服务端零编解码, 需客户端 HEVC 硬解) */
+  'vis4k':'主码流 4K 3840x2160 (H.265 直转)',
+  'vis1080':'第三码流 1080p (H.265 直转)',
+  'vis102':'子码流 704x576 (H.265 直转)',
+  /* ② 通用(Jetson NVENC -> H.264, 任意浏览器可播) */
+  'vis4kh264':'主码流 4K 3840x2160 (H.264 转码)',
+  'vis1080h264':'第三码流 1080p (H.264 转码)',
+  'vis102h264':'子码流 704x576 (H.264 转码)'
+};
+/* 直转流(HEVC) -> 同档 H.264 兜底流 */
+var HEVC_STREAMS = { 'vis4k':'vis4kh264', 'vis1080':'vis1080h264', 'vis102':'vis102h264' };
+function isHevcStream(name){
+  return Object.prototype.hasOwnProperty.call(HEVC_STREAMS, name);
+}
+function hevcFallback(name){ return HEVC_STREAMS[name] || name; }
+
+/* ============================================================
+   客户端 HEVC(H.265) 能力自检
+   ------------------------------------------------------------
+   直转路(vis4k/vis1080/vis102)是 H.265, 只有当浏览器能在 WebRTC 中
+   接收 H.265(即本机具备 HEVC 硬件解码)时才可播放; 否则 go2rtc 侧会报
+     "codecs not matched: video:H265 => video:VP8,video:VP9,video:H264,video:AV1"
+   并黑屏。判定采用双判, 以 WebRTC 能力为准:
+     1) RTCRtpReceiver.getCapabilities('video') 是否含 video/H265 → 决定 WebRTC 直转是否可行
+     2) MediaSource.isTypeSupported / canPlayType 能否解 HEVC     → 用于区分"缺硬解"与"仅 WebRTC 未开放"
+============================================================ */
+var HEVC = { webrtc:null, mse:null, codecs:'', reason:'' };
+
+function detectHevcCapability(){
+  HEVC.webrtc = false;
+  try {
+    if (window.RTCRtpReceiver && RTCRtpReceiver.getCapabilities){
+      var caps = RTCRtpReceiver.getCapabilities('video') || {};
+      var list = caps.codecs || [];
+      HEVC.codecs = list.map(function(c){ return String(c.mimeType || '').replace('video/', ''); })
+                        .filter(function(v, i, a){ return v && a.indexOf(v) === i; })
+                        .join(' / ');
+      HEVC.webrtc = /H265|HEVC/i.test(HEVC.codecs);
+    }
+  } catch (e) { HEVC.codecs = ''; }
+
+  HEVC.mse = false;
+  try {
+    var v = document.createElement('video');
+    var t1 = v.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"');
+    var t2 = v.canPlayType('video/mp4; codecs="hev1.1.6.L93.B0"');
+    var t3 = (window.MediaSource && MediaSource.isTypeSupported)
+             ? MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"') : false;
+    HEVC.mse = !!(t1 || t2 || t3);
+  } catch (e) { HEVC.mse = false; }
+
+  if (HEVC.webrtc){
+    HEVC.reason = '';
+  } else if (HEVC.mse){
+    HEVC.reason = '本机存在 HEVC 解码能力, 但当前浏览器未在 WebRTC 中开放 H.265: ' +
+                  '直转路无法播放, 请选择「通用(H.264)」, 或改用较新版本的 Edge/Chrome。';
+  } else {
+    HEVC.reason = '本机未检测到 HEVC 硬件解码能力, 直转的 H.265 无法播放。' +
+                  '可在 Microsoft Store 安装「HEVC 视频扩展」(或改用支持 HEVC 硬解的设备/浏览器); ' +
+                  '在此之前请选择「通用(H.264)」转码流。';
+  }
+  return HEVC.webrtc;
+}
+
+/* 直转码流地址列表(VLC/mpv 可直接打开); 主机名按当前访问地址动态生成 */
+function renderRtspList(){
+  var e = el('rtspList');
+  if (!e) return;
+  var host = location.hostname || '192.168.10.165';
+  var g = 'rtsp://' + host + ':8554/';
+  var cam = 'rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/';
+  var th = 'rtsp://admin:cisdi135@192.168.10.211:554/Streaming/Channels/101';
+  function row(label, url){
+    return '<div style="display:flex;gap:6px;align-items:center;margin:3px 0">'
+         + '<span style="min-width:158px;color:#8aa0b4">' + label + '</span>'
+         + '<code style="flex:1;word-break:break-all;color:#e8f1fa">' + url + '</code>'
+         + '<button class="sec" style="padding:2px 7px" onclick="copyRtsp(this,\'' + url + '\')">复制</button>'
+         + '</div>';
+  }
+  e.innerHTML =
+      '<b>① 经 go2rtc 转发(推荐: 局域网内任意播放器可用)</b>'
+    + row('主码流 4K · H.265 直转',      g + 'vis4k')
+    + row('第三码流 1080p · H.265 直转', g + 'vis1080')
+    + row('子码流 704x576 · H.265 直转', g + 'vis102')
+    + row('主码流 4K · H.264 转码',      g + 'vis4kh264')
+    + row('第三码流 1080p · H.264 转码', g + 'vis1080h264')
+    + row('子码流 704x576 · H.264 转码', g + 'vis102h264')
+    + row('热像仪 640x512',              g + 'thermal')
+    + '<b>② 相机直连(绕过 go2rtc, 需能访问相机网段)</b>'
+    + row('可见光 主码流 4K',            cam + '101')
+    + row('可见光 第三码流 1080p',       cam + '103')
+    + row('可见光 子码流 704x576',       cam + '102')
+    + row('热像仪 640x512',              th)
+    + '<b>③ 用法 —— 解决 4K 卡顿的关键在 VLC 参数</b><br>'
+    + '· <b>VLC 必加参数</b>：<code>--rtsp-tcp --rtsp-frame-buffer-size=2000000 --network-caching=1500</code><br>'
+    + '&nbsp;&nbsp;原因①：go2rtc 的 RTSP <b>只支持 TCP</b>，VLC 默认先试 UDP 会收到 461 再回退；<br>'
+    + '&nbsp;&nbsp;原因②：4K 单帧最大约 <b>800KB</b>，超过 VLC 默认 <b>250KB</b> 接收缓冲会被丢弃 → 花屏/卡顿。<br>'
+    + '&nbsp;&nbsp;Windows GUI 设置：工具 → 首选项 → 显示全部 → 输入/编解码器 → RTP/RTSP → '
+    + '勾选「使用 RTP over RTSP (TCP)」、把「RTSP 帧缓冲大小」改为 2000000。<br>'
+    + '· Jetson 本机(已装 VLC 且已写入上述参数)：<code>vlc ' + g + 'vis1080</code><br>'
+    + '· Windows 客户端：VLC → 媒体 → 打开网络串流 → 粘贴上面任一地址；'
+    + '<b>VLC 自带 HEVC 解码，无需安装 HEVC 视频扩展</b><br>'
+    + '· 无界面静默录像(存服务端)：<code>cvlc -I dummy --run-time=60 ' + g + 'vis1080 '
+    + "--sout '#std{access=file,mux=ts,dst=/tmp/a.ts}'</code><br>"
+    + '<b>④ 实测结论(务必知悉)</b><br>'
+    + '· 1080p 及以下：加参数后完全流畅(迟到/丢帧告警 0)；单核占用 704p≈24%、1080p≈62%。<br>'
+    + '· <b>Jetson 上请勿用 VLC/mpv 看 4K</b>：VLC 在这台机器上没有可用硬解后端(omxil 会 Bus error)，'
+    + '软解只有约 <b>20fps(0.82× 实时)</b>、占约 3 个核；mpv/ffplay 的 v4l2m2m 也因缺 <code>/dev/video*</code> 不可用。<br>'
+    + '<b>⑤ ★ Jetson 本机看 4K 的正确方法 —— 走 NVDEC 硬解(不卡)</b><br>'
+    + '· 已提供一键脚本：<code>/home/lcfc/remote/watch.sh <流名></code><br>'
+    + '&nbsp;&nbsp;例：<code>/home/lcfc/remote/watch.sh vis4k</code>(4K)、'
+    + '<code>... watch.sh vis1080</code>、<code>... watch.sh vis102</code>、<code>... watch.sh thermal</code><br>'
+    + '· 实测：NVDEC 硬解 4K 满 25fps，CPU 仅约 <b>13%</b>；nveglglessink 零拷贝直接上屏(不进 CPU)。<br>'
+    + '· 等价命令(H.265 流)：<br>'
+    + '&nbsp;&nbsp;<code>gst-launch-1.0 rtspsrc location=rtsp://127.0.0.1:8554/vis4k latency=0 protocols=tcp '
+    + 'drop-on-latency=true buffer-mode=0 ntp-sync=false ! rtph265depay ! h265parse config-interval=-1 ! '
+    + 'nvv4l2decoder enable-max-performance=1 disable-dpb=true ! nvvidconv ! nveglglessink sync=false</code><br>'
+    + '&nbsp;&nbsp;H.264 流(热像仪/转码流)把前两段换成 <code>rtph264depay ! h264parse</code>；'
+    + '显示异常时把末段 sink 换成 <code>nv3dsink</code>。<br>'
+    + '· 相机直连地址(②)同样适用上述 VLC 参数与 watch.sh。';
+}
+function copyRtsp(btn, url){
+  function done(){ btn.textContent = '已复制'; setTimeout(function(){ btn.textContent = '复制'; }, 1200); }
+  function fallback(){
+    var t = document.createElement('textarea');
+    t.value = url; document.body.appendChild(t); t.select();
+    try { document.execCommand('copy'); done(); } catch (e) { btn.textContent = '复制失败'; }
+    document.body.removeChild(t);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done, fallback);
+  } else { fallback(); }
+}
+
+function applyHevcUi(){
+  var ok = !!HEVC.webrtc;
+  /* 合并后的帮助控件默认折叠(默认隐藏); 不支持时仅改 summary 文案做提示, 不自动展开 */
+  var sum = el('helpSummary');
+  if (sum){
+    sum.textContent = ok
+      ? '帮助: 直转说明 / 直转码流地址 ▸'
+      : '⚠ 直转不可用 —— 点此展开原因与解决方法 ▸';
+  }
+  setCls('hevcState', ok ? 'st-ok' : 'st-bad',
+         ok ? '支持 · 可选直转(零转码)' : '不支持 · 直转项已禁用');
+  var sel = el('streamSel');
+  if (sel){
+    for (var i = 0; i < sel.options.length; i++){
+      var o = sel.options[i];
+      if (isHevcStream(o.value)){
+        o.disabled = !ok;
+        if (!ok && o.textContent.indexOf('✕') !== 0) o.textContent = '✕ ' + o.textContent;
+      }
+    }
+  }
+  var h = el('hevcHint');
+  if (h){
+    h.className = 'hint' + (ok ? ' gray' : '');
+    h.textContent = ok
+      ? ('检测到 WebRTC 视频编码: ' + (HEVC.codecs || 'H265') +
+         '。直转路不占服务端编解码资源; 注意 4K 直转对客户端解码/渲染要求最高。')
+      : (HEVC.reason + (HEVC.codecs ? '  [本机 WebRTC 视频编码: ' + HEVC.codecs + ']' : ''));
+  }
+}
+function markBtn(name){
+  ['b-h264-1080','b-h264-4k','b-h265-1080'].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.classList.remove('active');
+  });
+  var map = {'vis1080h264':'b-h264-1080','vis4kh264':'b-h264-4k','vis1080':'b-h265-1080'};
+  var b = document.getElementById(map[name]); if (b) b.classList.add('active');
+  var sel = document.getElementById('streamSel');
+  if (sel){
+    for (var i = 0; i < sel.options.length; i++){
+      if (sel.options[i].value === name) sel.selectedIndex = i;
+    }
+  }
+}
+/* ---- 链路统一渲染: 按钮使能 + 状态文案 + 画面/信息清理 ---- */
+function renderThermalLink(){
+  var s = LINK.thermal.state;
+  var connected = (s === 'connected'), busy = (s === 'connecting');
+  setBtn('btnThConn', !connected && !busy,
+         connected ? '已连接' : (busy ? '连接中…' : '连接热像仪'));
+  setBtn('btnThDisc', connected && !busy);
+  setCls('thStatus', connected ? 'st-ok' : (busy ? 'st-wait' : 'st-bad'),
+         linkText('thermal'));
+  setCls('sbTh', 'v ' + (connected ? 'st-ok' : (busy ? 'st-wait' : 'st-bad')),
+         linkText('thermal'));
+  if (!connected){
+    setTxt('b-thermal', busy ? '连接中…'
+            : (s === 'failed' ? '连接失败(点「连接热像仪」重试)' : '未连接'));
+    DET_RESULT = {sources: [], target: null, angle: null, threshold: null};
+    TH_PROBE.active = false; updateThermalProbeLabel();
+    var cv = el('c-thermal');
+    if (cv){ try { cv.getContext('2d').clearRect(0, 0, cv.width, cv.height); } catch(e){} }
+    updateThermalInfo(null);
+  } else {
+    setTxt('b-thermal', '');      /* 已连接: 隐藏角标, 右上角只保留画面内的检测状态 */
+  }
+  renderDetectRun();
+}
+function renderVisibleLink(){
+  var s = LINK.visible.state;
+  var connected = (s === 'connected'), busy = (s === 'connecting');
+  setBtn('btnVisConn', !connected && !busy,
+         connected ? '已连接' : (busy ? '连接中…' : '连接可见光'));
+  setBtn('btnVisDisc', connected && !busy);
+  var cam = (CAM_OK === false) ? ' (相机异常)' : '';
+  var txt = connected ? ('已连接' + (CUR ? ' · ' + CUR : '') + cam)
+          : busy ? '连接中…'
+          : (s === 'failed' ? ('连接失败' + cam) : ('未连接' + cam));
+  setCls('visStatus', connected ? 'st-ok' : (busy ? 'st-wait' : 'st-bad'), txt);
+  if (!connected){
+    setTxt('b-visible', busy ? '连接中…'
+            : (s === 'failed' ? '连接失败(点「连接可见光」重试)' : '未连接'));
+    setTxt('sbVis', '-');
+    setTxt('visInfoTitle', '· 请选择码流');
+    setTxt('visCodec', '编码 -'); setTxt('visRes', '分辨率 -');
+    setTxt('visFps', '帧率 -');   setTxt('visJb', '缓冲 -');
+  }
+}
+function renderRec(){
+  var b = el('bRec2');
+  if (b){
+    b.disabled = REC.busy;
+    b.textContent = REC.busy ? '处理中…' : (REC.on ? '结束录像' : '开始录像');
+    b.className = 'warn' + (REC.on ? ' active' : '');
+  }
+  setTxt('sbRec', REC.on ? '录像中' : '空闲');
+}
+function renderDetectRun(){
+  var thOk = (LINK.thermal.state === 'connected');
+  var e = el('d-run');
+  if (e){
+    e.className = 'hint ' + (thOk ? 'gray' : '');
+    e.textContent = !thOk
+      ? '热像仪未连接，检测暂停：请先在「热像仪连接」中点「连接热像仪」'
+      : (!DET.enable ? '检测已在参数中关闭(启用检测=关)'
+                     : '检测运行中(10Hz，阈值与参数实时同步)');
+  }
+  var sb = el('sbDet');
+  if (sb) sb.textContent = !thOk ? '热像仪未连接'
+      : (DET.enable ? ((DET_RESULT.sources || []).length + ' 候选') : '已关闭');
+  var dm = el('d-mask');
+  if (dm){
+    dm.textContent = BAR_MASK_PX > 0
+      ? ('已屏蔽右侧 ' + BAR_MASK_PX + 'px 的"温度-亮度"色条(不参与检测; 加 ?barmask=0 可关闭)')
+      : '温度条屏蔽已关闭(?barmask=0): 画面最右侧色条会被当作热源';
+  }
+}
+function renderLink(kind){ if (kind === 'thermal') renderThermalLink(); else renderVisibleLink(); }
+
+/* ---- 连接对象生命周期: 挂状态回调 / 彻底释放(避免资源泄漏) ---- */
+function attachPc(pc, kind){
+  pc.onconnectionstatechange = function(){
+    var st = pc.connectionState;
+    if (st === 'connected'){ LINK[kind].state = 'connected'; }
+    else if (st === 'failed'){ LINK[kind].state = 'failed'; }
+    else if (st === 'disconnected'){ LINK[kind].state = 'disconnected'; }
+    else if (st === 'closed'){
+      if (PC[kind] === pc) PC[kind] = null;
+      LINK[kind].state = 'idle';
+    } else { return; }                 /* new / connecting 期间保持 connecting */
+    log((kind === 'thermal' ? '热像仪' : '可见光') + '链路: ' + linkText(kind));
+    renderLink(kind);
+  };
+}
+function dropPc(kind){
+  var pc = PC[kind];
+  if (pc){ try{ pc.onconnectionstatechange = null; pc.close(); }catch(e){} }
+  PC[kind] = null;
+}
+
+function setStream(name, isRetry){
+  /* 直转(H.265)需要客户端 HEVC 能力: 不支持则拒绝并回落到同档 H.264 */
+  if (isHevcStream(name) && !HEVC.webrtc){
+    var fb = hevcFallback(name);
+    log('已拒绝直转流 ' + name + ' -> 客户端不支持 HEVC: ' + (HEVC.reason || ''));
+    if (name !== fb){ setStream(fb, isRetry); }
+    return;
+  }
+  /* 连接中: 仅忽略"同一码流"的重复请求; 换码流则取消旧连接并重连 */
+  if (!isRetry && LINK.visible.state === 'connecting' && CUR === name) return;
+  setTxt('visInfoTitle', '· ' + (STREAM_INFO[name] || name));
+  setTxt('sbStream', name);
+  markBtn(name);
+  dropPc('visible');
+  CUR = name;
+  LINK.visible.state = 'connecting'; renderVisibleLink();
+  whep(el('v-visible'), name, function(pc){ attachPc(pc, 'visible'); })
+    .then(function(pc){
+      if (CUR !== name){ try{ pc.close(); }catch(e){} return; }  /* 已切到别的码流 */
+      PC.visible = pc;
+      LINK.visible.state = (pc.connectionState === 'failed') ? 'failed' : 'connected';
+      LAST_OK = name;
+      renderVisibleLink();
+      log('可见光已连接 ' + name);
+    }).catch(function(e){
+      log('连接 ' + name + ' 失败: ' + e);
+      /* 直转(H.265)协商/解码失败 -> 自动回落到同档 H.264 兜底流 */
+      if (isHevcStream(name)){
+        log('直转流 ' + name + ' 不可用, 回落到 ' + hevcFallback(name));
+        setStream(hevcFallback(name), true);
+        return;
+      }
+      if (!isRetry && LAST_OK && LAST_OK !== name){
+        log('自动回退到 ' + LAST_OK); setStream(LAST_OK, true);
+      } else {
+        LINK.visible.state = 'failed'; renderVisibleLink();
+        setTxt('visInfoTitle', '· ' + name + ' 不可用');
+      }
+    });
+}
+function startThermal(){
+  if (LINK.thermal.state === 'connecting' || LINK.thermal.state === 'connected') return;
+  dropPc('thermal');
+  LINK.thermal.state = 'connecting'; renderThermalLink();
+  whep(el('v-thermal'), 'thermal', function(pc){ attachPc(pc, 'thermal'); })
+    .then(function(pc){
+      PC.thermal = pc;
+      LINK.thermal.state = (pc.connectionState === 'failed') ? 'failed' : 'connected';
+      renderThermalLink();
+      log('热像仪已连接(视频链路)');
+    }).catch(function(e){
+      LINK.thermal.state = 'failed'; renderThermalLink();
+      log('热像仪连接失败: ' + e);
+    });
+}
+function stopAll(){
+  api('/api/ptzstop', {}).catch(function(){});
+  ['visible','thermal'].forEach(function(k){
+    dropPc(k);
+    var v = el(k === 'thermal' ? 'v-thermal' : 'v-visible');
+    if (v) v.srcObject = null;
+    LINK[k].state = 'idle';
+  });
+  CUR = null;
+  renderThermalLink(); renderVisibleLink();
+  log('已停止全部视频');
+}
+
+/* ============================================================
+   工具
+============================================================ */
+function log(m){
+  var el = document.getElementById('log'); if (!el) return;
+  var t = new Date().toLocaleTimeString();
+  el.textContent = '[' + t + '] ' + m + '\n' + el.textContent;
+  if (el.textContent.length > 8000) el.textContent = el.textContent.slice(0, 8000);
+}
+function api(path, body){
+  return fetch(GW + path, body === undefined ? {} : {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
+}
+
+/* ============================================================
+   控制操作 (与程序指令/ISAPI 行为一致)
+============================================================ */
+function connectThermal(){ log('连接热像仪…'); startThermal(); }
+function disconnectThermal(){
+  dropPc('thermal');
+  var v = el('v-thermal'); if (v) v.srcObject = null;
+  LINK.thermal.state = 'idle';
+  renderThermalLink();
+  log('已断开热像仪视频');
+}
+function connectVisible(){ log('连接可见光…'); setStream(CUR || LAST_OK || 'vis1080h264'); }
+/* 一键 4K 实时: 客户端支持 HEVC 走直转(服务端零转码), 否则走 4K H.264 转码(通用浏览器) */
+function go4k(){
+  var name = HEVC.webrtc ? 'vis4k' : 'vis4kh264';
+  log('一键切换 4K 实时: ' + name);
+  setStream(name);
+}
+function disconnectVisible(){
+  dropPc('visible');
+  var v = el('v-visible'); if (v) v.srcObject = null;
+  LINK.visible.state = 'idle';
+  CUR = null;
+  setTxt('sbStream', '-');
+  renderVisibleLink();
+  log('已断开可见光视频');
+}
+function spd(){ return parseInt(document.getElementById('ptzSpeed').value) || 40; }
+function ptz(px, py){
+  var s = spd();
+  api('/api/ptz', {pan:px*s, tilt:py*s, zoom:0, ms:1500})
+    .then(function(r){ log('云台 ' + (r.ok?'OK':'失败'+r.http)); });
+}
+function ptzStop(){ api('/api/ptzstop', {}).then(function(){ log('停止云台/变焦'); }); }
+function zoom(dir){
+  var s = spd();
+  api('/api/ptz', {pan:0, tilt:0, zoom:dir*s, ms:800})
+    .then(function(r){ log('调焦' + (dir>0?'拉近':'拉远') + (r.ok?' OK':' 失败')); });
+}
+function focus(dir){
+  api('/api/focus', {dir:dir}).then(function(r){
+    log('聚焦' + (dir>0?'更远':'更近') + ' -> 档位 ' + r.focus_limited); refresh(); });
+}
+var irisTable = [160,200,240,280,340,400,480,560,680,960,1100,1400,1600,1900,2200];
+function irisStep(dir){
+  var cur = window._iris || 400;
+  var i = irisTable.reduce(function(b,v,k,a){
+    return Math.abs(v-cur) < Math.abs(a[b]-cur) ? k : b; }, 0);
+  i = Math.max(0, Math.min(irisTable.length-1, i + (dir>0 ? -1 : 1)));
+  var v = irisTable[i];
+  api('/api/iris', {level:v}).then(function(){ window._iris = v;
+    log('光圈 -> IrisLevel ' + v); refresh(); });
+}
+function gainStep(d){
+  var v = Math.max(0, Math.min(100, (window._gain||50) + d));
+  api('/api/gain', {level:v}).then(function(){ window._gain = v;
+    log('增益 -> ' + v); refresh(); });
+}
+function exposure(m){ api('/api/exposure', {mode:m}).then(function(){ log('曝光 -> '+m); refresh(); }); }
+function ircut(m){
+  api('/api/ircut', {mode:m}).then(function(r){
+    log('日夜 -> ' + m + (r.ok?' OK':' 失败 '+r.http)); refresh(); });
+}
+function snapshot(){
+  api('/api/snapshot', {}).then(function(r){
+    if (!r.ok){ log('抓图失败: ' + (r.detail||r.http)); return; }
+    SNAP.unshift(r);
+    log('抓图: ' + r.file + ' (' + Math.round(r.bytes/1024) + ' KB)');
+    renderSnaps();
+  });
+}
+function renderSnaps(){
+  var el = document.getElementById('snapList');
+  el.innerHTML = SNAP.slice(0,6).map(function(s){
+    return '<div><a href="'+s.url+'" target="_blank" style="color:#6cc0ff">'+s.file+'</a></div>';
+  }).join('') || '<div style="color:#6f8296">暂无</div>';
+}
+function toggleRec(){
+  if (REC.busy) return;                 /* 防重复点击 */
+  var wasOn = REC.on;                   /* 以网关回传的真实状态为准(不再依赖已移除的 bRec) */
+  REC.busy = true; renderRec();
+  var req = wasOn ? api('/api/record/stop', {})
+                  : api('/api/record/start', {stream: el('recStream').value});
+  req.then(function(r){
+    log('录像' + (wasOn ? '结束' : '开始') + (r.ok ? ': ' + r.detail : '失败: ' + r.detail));
+  }).catch(function(e){ log('录像操作失败: ' + e); })
+    .then(function(){ REC.busy = false; refresh(); });
+}
+
+/* ============================================================
+   检测参数读写
+============================================================ */
+function loadDetect(){
+  api('/api/detect').then(function(d){
+    if (!d.ok){ log('读取检测参数失败'); return; }
+    document.getElementById('d-enable').value = d.enable_detection || 'true';
+    document.getElementById('d-manual').value = d.manual_mode || 'true';
+    document.getElementById('d-mintemp').value = d.min_temp || '44';
+    document.getElementById('d-delta').value = d.temp_threshold_delta || '10.0';
+    document.getElementById('d-minarea').value = d.min_area_pixels || '50';
+    document.getElementById('d-maxsrc').value = d.max_sources || '5';
+    document.getElementById('d-grid').value = d.grid || 'true';
+    syncDetFromUi();
+    log('检测参数已读取');
+  }).catch(function(e){ log('读取检测参数失败: ' + e); });
+}
+function syncDetFromUi(){
+  DET.enable  = document.getElementById('d-enable').value === 'true';
+  DET.manual  = document.getElementById('d-manual').value === 'true';
+  DET.minTemp = parseFloat(document.getElementById('d-mintemp').value) || 44;
+  DET.delta   = parseFloat(document.getElementById('d-delta').value) || 10;
+  DET.minAreaPx = parseInt(document.getElementById('d-minarea').value) || 50;
+  DET.minArea   = DET.minAreaPx;
+  DET.maxSrc  = parseInt(document.getElementById('d-maxsrc').value) || 5;
+  DET.grid    = document.getElementById('d-grid').value === 'true';
+  renderDetectRun();                 /* 启用/关闭 立即反映到状态栏与提示 */
+}
+function saveDetect(){
+  syncDetFromUi();
+  api('/api/detect', {
+    enable_detection: DET.enable, manual_mode: DET.manual,
+    min_temp: DET.minTemp, temp_threshold_delta: DET.delta,
+    min_area_pixels: DET.minAreaPx, max_sources: DET.maxSrc, grid: DET.grid
+  }).then(function(r){
+    var h = document.getElementById('d-hint');
+    if (r.ok){ h.className = 'hint ok';
+      h.textContent = (r.note||'已保存') + '  (网页端已立即生效)'; log('检测参数已保存'); }
+    else { h.className = 'hint'; h.textContent = '保存失败: ' + (r.detail||''); }
+  }).catch(function(e){ log('保存失败: ' + e); });
+}
+
+/* ============================================================
+   激光 / TCP
+============================================================ */
+function loadTcp(){
+  api('/api/tcpserver').then(function(d){
+    document.getElementById('t-port').textContent = d.port;
+    setCls('t-listen', d.running ? 'st-ok' : 'st-bad', d.running ? '已启动' : '未启动');
+    setTxt('t-clients', d.clients);
+    setCls('t-bridge', d.prog_tcp ? 'st-ok' : 'st-bad', d.prog_tcp ? '已连接' : '未连接');
+    var bs = el('btnTcpStart'), bp = el('btnTcpStop');
+    if (bs){ bs.disabled = !!d.running || TCPBUSY; bs.textContent = '启动TCP'; }
+    if (bp){ bp.disabled = !d.running || TCPBUSY; bp.textContent = '停止TCP'; }
+    var h = document.getElementById('t-hint');
+    if (d.running){
+      h.textContent = '网关 TCP 服务器运行中(端口 ' + d.port + '), 客户端 ' + d.clients +
+        ' 个。协议与设备侧程序一致: zoom/focus/iris/ptz/stop/status/help; ' +
+        '每 100ms 推送 angle_data(含检测结果)。';
+      h.className = 'hint ok';
+    } else {
+      h.textContent = '未启动。点击「启动TCP」由网关提供该服务(与设备侧程序的「启动TCP」互斥, 请二选一)。';
+      h.className = 'hint';
+    }
+  }).catch(function(){});
+}
+function tcpStart(){
+  if (TCPBUSY) return;                       /* 防重复点击 */
+  TCPBUSY = true; setBtn('btnTcpStart', false, '启动中…');
+  api('/api/tcpserver/start', {port: 8888}).then(function(r){
+    log('TCP服务器: ' + r.detail);
+  }).catch(function(e){ log('启动失败: ' + e); })
+    .then(function(){ TCPBUSY = false; loadTcp(); });
+}
+function tcpStop(){
+  if (TCPBUSY) return;                       /* 防重复点击 */
+  TCPBUSY = true; setBtn('btnTcpStop', false, '停止中…');
+  api('/api/tcpserver/stop', {}).then(function(r){
+    log('TCP服务器: ' + r.detail);
+  }).catch(function(e){ log('停止失败: ' + e); })
+    .then(function(){ TCPBUSY = false; loadTcp(); });
+}
+function sendCmd(){
+  var line = document.getElementById('t-cmd').value.trim();
+  if (!line) return;
+  api('/api/tcp', {line:line}).then(function(r){
+    document.getElementById('t-resp').textContent = (r.ok ? '' : '(未连接) ') + (r.resp||'');
+    log('指令 "' + line + '" -> ' + (r.ok ? (r.resp||'已发送') : r.detail));
+  }).catch(function(e){ log('指令失败: ' + e); });
+}
+function quick(l){ document.getElementById('t-cmd').value = l; sendCmd(); }
+
+/* ============================================================
+   状态刷新
+============================================================ */
+function fmt(st){
+  var inb = null, codec = null;
+  st.forEach(function(s){
+    if (s.type === 'inbound-rtp' && s.kind === 'video') inb = s;
+    if (s.type === 'codec' && s.mimeType && s.mimeType.indexOf('video') >= 0) codec = s;
+  });
+  if (!inb) return null;
+  var jb = (inb.jitterBufferDelay && inb.jitterBufferEmittedCount)
+    ? Math.round(inb.jitterBufferDelay / inb.jitterBufferEmittedCount * 1000 * 10) / 10 : null;
+  return {fps: inb.framesPerSecond||0, w: inb.frameWidth, h: inb.frameHeight,
+          decoded: inb.framesDecoded||0, dropped: inb.framesDropped||0,
+          codec: codec?codec.mimeType:null, jb: jb, bytes: inb.bytesReceived||0};
+}
+function refresh(){
+  api('/api/status').then(function(s){
+    var pc = document.getElementById('pCam');
+    pc.className = 'pill ' + (s.ok?'ok':'bad');
+    pc.textContent = '相机' + (s.ok?'正常':'异常');
+    var pg = document.getElementById('pProg');
+    pg.className = 'pill ' + (s.prog_tcp?'ok':'bad');
+    pg.textContent = '程序TCP' + (s.prog_tcp?'已连接':'未连接');
+    CAM_OK = !!s.ok;                 /* 相机可达性并入可见光链路文案 */
+    renderVisibleLink();
+    document.getElementById('vZoom').textContent = (s.zoom_x||'-') + '×';
+    document.getElementById('vIris').textContent = s.iris_level||'-';
+    document.getElementById('vGain').textContent = s.gain||'-';
+    document.getElementById('vIrcut').textContent = s.ircut||'-';
+    document.getElementById('vFocus').textContent = s.focus_limited||'-';
+    if (s.iris_level) window._iris = parseInt(s.iris_level);
+    if (s.gain) window._gain = parseInt(s.gain);
+    var rec = el('pRec');
+    if (rec){ rec.className = 'pill ' + (s.recording?'ok':''); rec.textContent = s.recording?'录像中':'未录像'; }
+    if (REC.on !== !!s.recording) log('录像状态: ' + (s.recording ? '录像中' : '已停止'));
+    REC.on = !!s.recording;               /* 真实状态回填, 供「开始/结束录像」按钮判定 */
+    renderRec();
+    if (s.record_file) setTxt('vRecFile', s.record_file);
+  }).catch(function(){});
+}
+function updateBars(){
+  if (PC.visible && PC.visible.getStats){
+    PC.visible.getStats().then(function(st){
+      var v = fmt(st); if (!v) return;
+      document.getElementById('b-visible').innerHTML =
+        '<b>'+v.w+'x'+v.h+'</b>  '+v.fps+' fps<br>'+(v.codec||'-')+
+        ((v.jb!==null)?('  缓冲 '+v.jb+' ms'):'');
+      document.getElementById('sbVis').textContent = v.w+'x'+v.h+' @'+v.fps+'fps';
+      document.getElementById('visCodec').textContent = '编码 ' + (v.codec||'-');
+      document.getElementById('visRes').textContent = '分辨率 ' + v.w + 'x' + v.h;
+      document.getElementById('visFps').textContent = '帧率 ' + v.fps + ' fps';
+      document.getElementById('visJb').textContent = '缓冲 ' + (v.jb!==null?v.jb+' ms':'-');
+      if (v.decoded === 0 && v.bytes > 3000000){
+        document.getElementById('b-visible').innerHTML +=
+          '<br><span style="color:#ffb86b">已收到数据但无法解码</span>';
+      }
+    }).catch(function(){});
+  }
+  if (PC.thermal && PC.thermal.getStats){
+    PC.thermal.getStats().then(function(st){
+      var v = fmt(st); if (!v) return;
+      /* 按要求: 右上角不再显示"640x512 50fps"(与画面内的检测状态提示重叠)。
+         分辨率已在标题「热源监测图像 640×512」体现, 此处仅缓存备用。 */
+      LAST_TH_STATS = {w: v.w, h: v.h, fps: v.fps};
+    }).catch(function(){});
+  }
+}
+function connectEvents(){
+  var es = new EventSource(GW + '/api/events');
+  es.onopen = function(){ log('事件通道已连接'); };
+  es.onerror = function(){ log('事件通道断开(自动重连)'); };
+  es.onmessage = function(ev){
+    var msg; try { msg = JSON.parse(ev.data); } catch(e){ return; }
+    if (msg.type === 'tcp'){
+      var pg = el('pProg');
+      if (pg){ pg.className = 'pill ' + (msg.connected?'ok':'bad');
+               pg.textContent = '程序TCP' + (msg.connected?'已连接':'未连接'); }
+      setCls('t-bridge', msg.connected?'st-ok':'st-bad', msg.connected?'已连接':'未连接');
+      log('程序 TCP 8888 ' + (msg.connected?'已连接':'断开'));
+      return;
+    }
+    if (msg.type === 'prog'){
+      var d = msg.data || {};
+      if (d.type === 'angle_data'){ log('程序推送角度数据'); }
+      else { log('程序: ' + JSON.stringify(d).slice(0,150)); }
+    }
+  };
+}
+/* 可见光画面中心十字 */
+function drawVisibleCross(){
+  var cv = document.getElementById('c-visible');
+  if (!cv || !cv.clientWidth) return;
+  if (cv.width !== cv.clientWidth || cv.height !== cv.clientHeight){
+    cv.width = cv.clientWidth; cv.height = cv.clientHeight;
+  }
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, cv.width, cv.height);
+  g.strokeStyle = 'rgba(80,255,120,.85)'; g.lineWidth = 1;
+  var mx = cv.width / 2, my = cv.height / 2;
+  g.beginPath();
+  g.moveTo(mx - 20, my); g.lineTo(mx + 20, my);
+  g.moveTo(mx, my - 20); g.lineTo(mx, my + 20);
+  g.stroke();
+}
+
+/* ============================================================
+   Tab / 初始化
+============================================================ */
+document.querySelectorAll('#tabs div').forEach(function(t){
+  t.onclick = function(){
+    document.querySelectorAll('#tabs div').forEach(function(x){ x.classList.remove('on'); });
+    t.classList.add('on');
+    var want = t.getAttribute('data-t');
+    document.querySelectorAll('.tab').forEach(function(b){
+      b.style.display = (b.getAttribute('data-t') === want) ? '' : 'none';
+    });
+    if (want === 'laser'){ loadLaser(); }
+    if (want === 'tcp'){ loadTcp(); }
+  };
+});
+document.getElementById('ptzSpeed').oninput = function(){
+  document.getElementById('ptzSpeedV').textContent = this.value;
+};
+['d-enable','d-manual','d-mintemp','d-delta','d-minarea','d-maxsrc','d-grid'].forEach(function(id){
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('change', syncDetFromUi);
+});
+window.addEventListener('load', function(){
+  log('操作台已加载  视频源=' + GOP2RTC + '  控制源=' + GW);
+  OV = document.createElement('canvas');
+  OV.width = IMW; OV.height = IMH;
+  OVG = OV.getContext('2d', {willReadFrequently: true});
+
+  renderThermalLink(); renderVisibleLink(); renderRec(); renderDetectRun();
+  updateThermalProbeLabel();
+
+  /* 客户端 HEVC 能力自检 -> 决定直转项是否可选(不支持则禁用并给出原因) */
+  detectHevcCapability();
+  applyHevcUi();
+  renderRtspList();          /* 直转码流地址列表(VLC/mpv 可直接打开) */
+
+  /* 热像仪鼠标探针: 只在画面内移动时显示; 离开画面立即隐藏 */
+  var vth = el('v-thermal');
+  if (vth){
+    vth.addEventListener('mousemove', onThermalProbeMove);
+    vth.addEventListener('mouseleave', onThermalProbeLeave);
+  }
+
+  startThermal();
+  /* 默认码流: 支持 HEVC 则用「第三码流 1080p 直转」(服务端零编解码);
+     不支持则用「第三码流 1080p 通用(H.264 转码)」, 保证一定能出画 */
+  setStream(HEVC.webrtc ? 'vis1080' : 'vis1080h264');
+  connectEvents();
+  refresh(); loadDetect(); loadLaser(); loadTcp(); renderSnaps();
+
+  /* 激光串口自动连接: 空闲且未打开时自动连, 免去"连不上"的困惑 */
+  setTimeout(function(){
+    api('/api/laser').then(function(d){
+      if (d.controllable && !d.opened){
+        api('/api/laser/open', {dev: (document.getElementById('l-port') || {value:'/dev/ir_laser'}).value}).then(function(r){
+          log('激光串口自动连接: ' + r.detail);
+          loadLaser();
+          setTimeout(laserQuery, 600);
+        });
+      } else if (d.opened){
+        log('激光串口已连接');
+        setTimeout(laserQuery, 600);
+      } else {
+        log('激光串口被本地程序占用, 如需远程控制请先在程序中断开激光');
+      }
+    }).catch(function(){});
+  }, 1200);
+
+  setInterval(refresh, 2000);
+  setInterval(loadTcp, 5000);
+  setInterval(updateBars, 1000);
+  setInterval(runDetection, 100);        /* 10Hz, 与 m_detectionTimer 一致 */
+  setInterval(drawVisibleCross, 200);
+  window.addEventListener('beforeunload', function(){
+    try { navigator.sendBeacon(GW + '/api/ptzstop'); } catch(e){}
+  });
+});
+/* ============================================================
+   红外激光直控 v8 (Pelco_D, 与 irlaser.cpp 命令表一致)
+   · 现场实测标定: 行程位置(0~16384) <-> 光斑角度(°), 9 个点
+   · 状态机: 未连接 -> 仅"连接激光"可点; 已连接 -> "断开"与全部控制可点
+   · 光斑角度即光斑大小; 2° = 远角(有效距离 > 800m, 光斑直径 < 21m)
+============================================================ */
+var LASER_CAL = [
+  [0, 71.88], [2048, 54.42], [4096, 39.52], [6144, 29.07], [8192, 20.37],
+  [10240, 14.01], [12288, 8.69], [14336, 4.39], [16384, 1.83]
+];
+var L_ANG_MIN = 2.0, L_ANG_MAX = 65.0, L_ANG_STEP = 1.0, L_BRI_STEP = 5;
+var LS = { opened:false, controllable:false, on:false, ang:null, bri:null, pos:null, busy:false };
+var _lastCmdAt = 0;
+
+function posToAngle(p){
+  var t = LASER_CAL, i;
+  if (p <= t[0][0]) return t[0][1];
+  for (i = 1; i < t.length; i++){
+    if (p <= t[i][0]){
+      return t[i-1][1] + (t[i][1] - t[i-1][1]) * (p - t[i-1][0]) / (t[i][0] - t[i-1][0]);
+    }
+  }
+  return t[t.length-1][1];
+}
+function angleToPos(a){
+  var t = LASER_CAL, i;
+  if (a >= t[0][1]) return t[0][0];
+  for (i = 1; i < t.length; i++){
+    if (a >= t[i][1]){
+      return Math.round(t[i-1][0] +
+        (t[i][0] - t[i-1][0]) * (a - t[i-1][1]) / (t[i][1] - t[i-1][1]));
+    }
+  }
+  return t[t.length-1][0];
+}
+function lmsg(t, ok){
+  var el = document.getElementById('l-msg');
+  if (el){ el.textContent = t; el.className = 'hint' + (ok ? ' ok' : ''); }
+  log('[激光] ' + t);
+}
+function paintLaser(){
+  var a = document.getElementById('l-ang');
+  if (a) a.textContent = (LS.ang === null ? '-' : LS.ang.toFixed(2) + '°');
+  var b = document.getElementById('l-bri');
+  if (b) b.textContent = (LS.bri === null ? '-' : LS.bri + '/255');
+  var s = document.getElementById('l-sw');
+  if (s) s.textContent = (LS.on ? '开启' : '关闭');
+  var p = document.getElementById('l-pos');
+  if (p) p.textContent = (LS.pos === null ? '-' : (LS.pos + ' / 16384'));
+}
+function applyLaserUi(st){
+  st = st || {};
+  if (st.opened !== undefined) LS.opened = !!st.opened;
+  if (st.controllable !== undefined) LS.controllable = !!st.controllable;
+  if (st.on !== undefined) LS.on = !!st.on;
+  var o = LS.opened, c = LS.controllable, bz = !!LS.busy;
+  function set(id, on, txt){
+    var e = document.getElementById(id);
+    if (!e) return;
+    e.disabled = !on;
+    if (txt !== undefined) e.textContent = txt;
+  }
+  set('btnLaserConn', c && !o && !bz, o ? '已连接' : (bz ? '连接中…' : '连接激光'));
+  set('btnLaserDisc', o && !bz);
+  set('btnLaserOn', o && !bz);  set('btnLaserOff', o && !bz);
+  set('l-ang-up', o && !bz);    set('l-ang-dn', o && !bz);
+  set('l-bri-up', o && !bz);    set('l-bri-dn', o && !bz);
+  set('l-reset', o && !bz);     set('l-query', o && !bz);
+  var occ = document.getElementById('l-occ');
+  if (occ) occ.textContent = o ? '已打开(本网关)'
+                              : (c ? '未打开(可连接)' : '被本地程序占用');
+  var m = document.getElementById('l-msg');
+  if (m && !o){
+    m.textContent = c ? '串口空闲, 点击「连接激光」后即可控制 开光/亮度/光斑角度'
+        : '串口被本地程序占用: 请先在 Qt 程序里断开激光, 再点「连接激光」';
+    m.className = 'hint';
+  }
+  paintLaser();
+}
+function loadLaser(){
+  api('/api/laser').then(function(d){
+    applyLaserUi(d);
+  }).catch(function(e){ lmsg('读取激光状态失败: ' + e, false); });
+}
+function laserOpen(){
+  if (LS.busy) return;                       /* 防重复点击 */
+  var sel = document.getElementById('l-port');
+  var dev = sel ? sel.value : '/dev/ir_laser';
+  LS.busy = true; applyLaserUi(LS);
+  lmsg('正在连接串口 ' + dev + ' ...');
+  api('/api/laser/open', {dev: dev}).then(function(r){
+    LS.busy = false;
+    lmsg('连接结果: ' + r.detail, !!r.ok);
+    loadLaser();
+    setTimeout(laserQuery, 400);
+  }).catch(function(e){
+    LS.busy = false; applyLaserUi(LS);
+    lmsg('打开串口失败: ' + e, false);
+  });
+}
+function laserClose(){
+  if (LS.busy) return;                       /* 防重复点击 */
+  LS.busy = true; applyLaserUi(LS);
+  api('/api/laser/close', {}).then(function(r){
+    LS.busy = false;
+    LS.opened = false; LS.on = false;
+    LS.ang = null; LS.bri = null; LS.pos = null;
+    lmsg('已断开: ' + r.detail, !!r.ok);
+    loadLaser();
+  }).catch(function(e){
+    LS.busy = false; applyLaserUi(LS);
+    lmsg('断开失败: ' + e, false);
+  });
+}
+function laserOn(){
+  if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
+  _lastCmdAt = Date.now();
+  api('/api/laser/on', {}).then(function(r){
+    if (r.ok){ LS.on = true; paintLaser(); lmsg('已开启激光', true); }
+    else { lmsg('开启失败: ' + r.detail, false); }
+  }).catch(function(e){ lmsg('开启失败: ' + e, false); });
+}
+function laserOff(){
+  if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
+  _lastCmdAt = Date.now();
+  api('/api/laser/off', {}).then(function(r){
+    if (r.ok){ LS.on = false; paintLaser(); lmsg('已关闭激光', true); }
+    else { lmsg('关闭失败: ' + r.detail, false); }
+  }).catch(function(e){ lmsg('关闭失败: ' + e, false); });
+}
+function laserAngStep(dir){
+  if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
+  _lastCmdAt = Date.now();
+  var cur = LS.ang;
+  if (cur === null || cur === undefined) cur = posToAngle(LS.pos === null ? 8482 : LS.pos);
+  var tgt = cur + dir * L_ANG_STEP;
+  if (tgt < L_ANG_MIN) tgt = L_ANG_MIN;
+  if (tgt > L_ANG_MAX) tgt = L_ANG_MAX;
+  if (Math.abs(tgt - cur) < 0.001){
+    lmsg('光斑角度已到' + (dir > 0 ? '最大 ' + L_ANG_MAX : '最小 ' + L_ANG_MIN) + '°', true);
+    return;
+  }
+  var pos = angleToPos(tgt);
+  api('/api/laser/position', {pos: pos}).then(function(r){
+    if (!r.ok){ lmsg('光斑角度失败: ' + r.detail, false); return; }
+    LS.ang = tgt; LS.pos = pos; paintLaser();
+    lmsg('光斑角度 -> ' + tgt.toFixed(2) + '° (位置 ' + pos + ')', true);
+  }).catch(function(e){ lmsg('光斑角度失败: ' + e, false); });
+}
+var _angTimer = null;
+function laserAngHold(dir){
+  laserAngStep(dir);
+  laserAngStop();
+  _angTimer = setInterval(function(){ laserAngStep(dir); }, 600);
+}
+function laserAngStop(){
+  if (_angTimer){ clearInterval(_angTimer); _angTimer = null; }
+}
+function laserBriStep(dir){
+  if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
+  _lastCmdAt = Date.now();
+  var cur = (LS.bri === null || LS.bri === undefined) ? 56 : LS.bri;
+  var tgt = cur + dir * L_BRI_STEP;
+  if (tgt < 0) tgt = 0;
+  if (tgt > 255) tgt = 255;
+  if (tgt === cur){
+    lmsg('亮度已到' + (dir > 0 ? '上限 255' : '下限 0'), true);
+    return;
+  }
+  api('/api/laser/brightness', {level: tgt}).then(function(r){
+    if (!r.ok){ lmsg('亮度失败: ' + r.detail, false); return; }
+    LS.bri = tgt; paintLaser();
+    lmsg('亮度 -> ' + tgt + '/255', true);
+  }).catch(function(e){ lmsg('亮度失败: ' + e, false); });
+}
+var _briTimer = null;
+function laserBriHold(dir){
+  laserBriStep(dir);
+  laserBriStop();
+  _briTimer = setInterval(function(){ laserBriStep(dir); }, 600);
+}
+function laserBriStop(){
+  if (_briTimer){ clearInterval(_briTimer); _briTimer = null; }
+}
+function laserReset(){
+  api('/api/laser/reset', {}).then(function(r){
+    lmsg('电机复位: ' + (r.ok ? 'ok' : r.detail), !!r.ok);
+    setTimeout(laserQuery, 900);
+  }).catch(function(e){ lmsg('复位失败: ' + e, false); });
+}
+function pelcoParse(hex){
+  if (!hex) return null;
+  var parts = String(hex).trim().split(' ');
+  var b = [], i, v;
+  for (i = 0; i < parts.length; i++){
+    if (parts[i] === '') continue;
+    v = parseInt(parts[i], 16);
+    if (isNaN(v)) return null;
+    b.push(v);
+  }
+  for (i = 0; i + 5 < b.length; i++){
+    if (b[i] === 0xFF){
+      return {cmd1: b[i + 2], cmd2: b[i + 3], d1: b[i + 4], d2: b[i + 5]};
+    }
+  }
+  return null;
+}
+function laserQuery(){
+  if (!LS.opened) return;
+  _lastCmdAt = Date.now();
+  api('/api/laser/query', {}).then(function(r){
+    if (!r.ok){ lmsg('读状态失败', false); return; }
+    var q = r.queries || {}, got = [];
+    var fb = pelcoParse(q.brightness);
+    if (fb){ LS.bri = fb.d1; got.push('亮度 ' + fb.d1 + '/255'); }
+    var fp = pelcoParse(q.position);
+    if (fp){ LS.pos = (fp.d1 << 8) | fp.d2; got.push('位置 ' + LS.pos); }
+    var fa = pelcoParse(q.angle);
+    if (fa){
+      LS.ang = ((fa.d1 << 8) | fa.d2) / 100.0;
+      got.push('光斑角度 ' + LS.ang.toFixed(2) + '°');
+    }
+    var fs = pelcoParse(q.switch);
+    if (fs){ LS.on = !!fs.d1; got.push(LS.on ? '出光中' : '关闭'); }
+    paintLaser();
+    lmsg('状态: ' + (got.length ? got.join('   ') : '无应答'), true);
+  }).catch(function(e){ lmsg('读状态失败: ' + e, false); });
+}
+function laserTabActive(){
+  var t = document.querySelector ? document.querySelector('.tab[data-t="laser"]') : null;
+  return !!(t && t.style.display !== 'none');
+}
+/* 每 2.5s 在激光页刷新一次状态; 刚下发过指令则跳过, 避免占用串口 */
+setInterval(function(){
+  if (laserTabActive() && LS.opened && Date.now() - _lastCmdAt > 2500) loadLaser();
+}, 2500);
+
+</script>
+</body></html>

@@ -1,0 +1,41 @@
+# go2rtc 配置 - 水下成像系统远程视频转发
+log:
+  level: info
+
+api:
+  listen: ":1984"
+  origin: "*"
+
+rtsp:
+  listen: ":8554"
+
+webrtc:
+  listen: ":8555"
+  candidates:
+    - "192.168.10.165:8555"
+
+# ============================================================
+# 流布局: "直转优先 + 转码兜底" 双轨, 共 6 路可见光 + 1 路热像仪
+# ------------------------------------------------------------
+#   [直转/零转码] 服务端不编解码, 但要求客户端能解 H.265(HEVC)
+#      vis4k    = ch101 主码流   3840x2160 H.265
+#      vis1080  = ch103 第三码流 1920x1080 H.265
+#      vis102   = ch102 子码流    704x576  H.265
+#   [转码/通用]   Jetson NVENC 转 H.264, 任意浏览器可播(按需拉起)
+#      vis4kh264   = ch101 -> 4K   H.264 16Mbps   (最重, 仅必要时候选)
+#      vis1080h264 = ch103 -> 1080p H.264 4Mbps
+#      vis102h264  = ch102 -> 704p  H.264 2Mbps
+#   热像仪 thermal 本身已是 H.264 640x512@50, 直转即可(无需 HEVC)
+# ============================================================
+streams:
+  # ---- 1) H.265 直转(延时最低、服务端零编解码; 需客户端 HEVC 硬解) ----
+  vis1080: rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/103
+  vis4k: rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/101
+  vis102: rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/102
+  thermal: rtsp://admin:cisdi135@192.168.10.211:554/Streaming/Channels/101
+
+  # ---- 2) 通用流: Jetson NVENC 硬转 H.264, Firefox/Chrome/Edge 均可直解 ----
+  #      由 go2rtc 按需拉起转码进程(无人观看时不占用 NVENC/CPU)
+  vis1080h264: 'exec:gst-launch-1.0 -q rtspsrc location=rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/103 latency=0 protocols=tcp drop-on-latency=true buffer-mode=0 ntp-sync=false do-retransmission=false ! rtph265depay ! h265parse config-interval=-1 ! nvv4l2decoder enable-max-performance=1 disable-dpb=true ! nvvidconv ! nvv4l2h264enc bitrate=4000000 peak-bitrate=5000000 control-rate=1 preset-level=1 profile=2 insert-sps-pps=true idrinterval=25 iframeinterval=25 ! h264parse config-interval=-1 ! mpegtsmux ! fdsink fd=1 sync=false'
+  vis4kh264: 'exec:gst-launch-1.0 -q rtspsrc location=rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/101 latency=0 protocols=tcp drop-on-latency=true buffer-mode=0 ntp-sync=false do-retransmission=false ! rtph265depay ! h265parse config-interval=-1 ! nvv4l2decoder enable-max-performance=1 disable-dpb=true ! nvvidconv ! nvv4l2h264enc bitrate=16000000 peak-bitrate=18000000 control-rate=1 preset-level=1 profile=2 insert-sps-pps=true idrinterval=25 iframeinterval=25 ! h264parse config-interval=-1 ! mpegtsmux ! fdsink fd=1 sync=false'
+  vis102h264: 'exec:gst-launch-1.0 -q rtspsrc location=rtsp://admin:cisdi135@192.168.10.212:554/Streaming/Channels/102 latency=0 protocols=tcp drop-on-latency=true buffer-mode=0 ntp-sync=false do-retransmission=false ! rtph265depay ! h265parse config-interval=-1 ! nvv4l2decoder enable-max-performance=1 disable-dpb=true ! nvvidconv ! nvv4l2h264enc bitrate=2000000 peak-bitrate=2500000 control-rate=1 preset-level=1 profile=2 insert-sps-pps=true idrinterval=25 iframeinterval=25 ! h264parse config-interval=-1 ! mpegtsmux ! fdsink fd=1 sync=false'
