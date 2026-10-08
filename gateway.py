@@ -91,6 +91,45 @@ _lock = threading.RLock()
 _ptz_gen = 0
 
 
+_zoom_af_timer = None
+
+
+def focus_once_after_zoom(hold_s=1.2):
+    """变焦结束后在当前倍率下**强制**执行一次自动对焦。
+
+    2026-09-24 修正: 该机芯没有 /ISAPI/Image/channels/1/focus 一键聚焦端点(404);
+    而"把 focusStyle 写成同一个值"(例如本来就是 SEMIAUTOMATIC)不会产生任何镜头动作,
+    于是出现"点了变焦但没对焦"。这里改为: 先切 AUTO 让镜头在当前倍率下完成一次自动对焦,
+    再切回原模式锁住焦点 —— 无论原模式是什么, 每次都会真正对焦一次。
+    """
+    try:
+        cur = (camera_status().get("focus_style") or "").upper()
+        ok, st, _ = read_modify_write(
+            "/ISAPI/Image/channels/1", "FocusConfiguration", "focusStyle", "AUTO")
+        if not ok:
+            print(f"[WARN] 变焦后自动对焦失败(切AUTO): http={st}", flush=True)
+            return
+        time.sleep(max(0.3, hold_s))          # 等连续自动对焦在当前倍率下完成聚焦
+        back = cur if cur in ("MANUAL", "SEMIAUTOMATIC") else "SEMIAUTOMATIC"
+        ok2, st2, _ = read_modify_write(
+            "/ISAPI/Image/channels/1", "FocusConfiguration", "focusStyle", back)
+        print("[INFO] 变焦后自动对焦完成, focusStyle 恢复 "
+              + back + ("" if ok2 else f"(HTTP {st2})"), flush=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] 变焦后自动对焦异常: {e}", flush=True)
+
+
+def schedule_focus_after_zoom(delay_s=1.0):
+    """去抖调度: 连续变焦/连点按钮只在最后一次动作结束后触发**一次**对焦"""
+    global _zoom_af_timer
+    with _lock:
+        if _zoom_af_timer is not None:
+            _zoom_af_timer.cancel()
+        _zoom_af_timer = threading.Timer(max(0.2, delay_s), focus_once_after_zoom)
+        _zoom_af_timer.daemon = True
+        _zoom_af_timer.start()
+
+
 def ptz_move(pan=0, tilt=0, zoom=0, ms=0):
     """下发连续云台/变焦, ms>0 时到时自动回零(带代数号防止旧定时器误停新的动作)"""
     global _ptz_gen
@@ -170,22 +209,60 @@ def camera_status():
 _rec = {"proc": None, "path": None, "t0": 0}
 
 
+REC_LOG = "ffmpeg_record.log"
+
+
+def _tail_file(path, lines=3):
+    try:
+        with open(path, errors="replace") as f:
+            return " | ".join([x.strip() for x in f.readlines()[-lines:] if x.strip()])
+    except OSError:
+        return ""
+
+
 def record_start(stream="vis1080"):
+    """开始录像(直拷所选码流, 不转码)。
+
+    2026-09-24 修复: go2rtc 的直转流(如 vis4k/vis1080/thermal)同时带**音轨 G.711 PCM A-Law**,
+    而 MP4 容器不支持该编码, ffmpeg 会报
+        "Could not find tag for codec pcm_alaw in stream #1, codec not currently supported in container"
+    并拒绝写文件头 -> 生成 0 字节 mp4(点击播放时黑屏/无内容)。
+    录像只需要画面, 因此这里显式只取视频轨(-map 0:v:0)并丢弃音频(-an), 仍然 -c:v copy 不转码。
+    """
     with _lock:
         if _rec["proc"] and _rec["proc"].poll() is None:
             return False, "已在录像中"
         os.makedirs(EVIDENCE_DIR, exist_ok=True)
         name = f"remote_{stream}_{time.strftime('%Y%m%d_%H%M%S')}.mp4"
         path = os.path.join(EVIDENCE_DIR, name)
-        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-rtsp_transport", "tcp",
-               "-i", f"{GO2RTC_RTSP}/{stream}", "-c", "copy", "-movflags", "+faststart",
-               path]
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "warning",
+               "-rtsp_transport", "tcp", "-i", f"{GO2RTC_RTSP}/{stream}",
+               "-map", "0:v:0", "-c:v", "copy", "-an",
+               "-movflags", "+faststart", "-fflags", "+genpts", "-y", path]
+        errlog = os.path.join(EVIDENCE_DIR, REC_LOG)
+        try:
+            ferr = open(errlog, "ab")
+        except OSError:
+            ferr = subprocess.DEVNULL
         try:
             p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL,
-                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                 stdout=subprocess.DEVNULL, stderr=ferr)
         except Exception as e:  # noqa: BLE001
             return False, f"启动 ffmpeg 失败: {e}"
         _rec.update(proc=p, path=path, t0=time.time())
+        # 存活检查: ffmpeg 立刻退出(流名不存在/容器不支持等)时给出真实原因, 并清掉 0 字节文件
+        time.sleep(1.0)
+        if p.poll() is not None:
+            tail = _tail_file(errlog, 3)
+            try:
+                if os.path.exists(path) and os.path.getsize(path) == 0:
+                    os.remove(path)
+            except OSError:
+                pass
+            _rec.update(proc=None)
+            print(f"[WARN] 录像启动失败 stream={stream}: {tail}", flush=True)
+            return False, (f"ffmpeg 启动即失败(流 {stream} 不可用或编码不被 MP4 支持): "
+                           f"{tail or ('见 ' + errlog)}")
         return True, name
 
 
@@ -202,9 +279,23 @@ def record_stop():
                 p.kill()
             except Exception:  # noqa: BLE001
                 pass
-        name = os.path.basename(_rec.get("path") or "")
+        path = _rec.get("path") or ""
+        name = os.path.basename(path)
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
         _rec.update(proc=None)
-        return True, name
+        if size <= 0:
+            # 0 字节 = 没录上: 删除残file 并明确报错, 避免界面显示"看起来成功了"
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return False, ("录像失败(输出为空): "
+                           + (_tail_file(os.path.join(EVIDENCE_DIR, REC_LOG), 3)
+                              or "见 " + REC_LOG))
+        return True, f"{name} ({size / 1048576.0:.1f} MB)"
 
 
 # ---------------------------------------------------------------- 8888 桥接 (SSE)
@@ -374,12 +465,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ptz":
             ms = int(p.get("ms") or 300)
             ms = max(50, min(5000, ms))
+            zoom_speed = int(p.get("zoom") or 0)
             ok, st, resp = ptz_move(int(p.get("pan") or 0), int(p.get("tilt") or 0),
-                                    int(p.get("zoom") or 0), ms)
+                                    zoom_speed, ms)
+            # 2026-09-24: 只要本次含变焦(单击或按住都一样), 在该动作结束后于**当前焦距**
+            # 强制自动对焦一次; schedule 内部去抖, 连续操作只触发最后一次。
+            if zoom_speed != 0:
+                schedule_focus_after_zoom(ms / 1000.0 + 0.4)
             return self._json({"ok": ok, "http": st, "ms": ms, "detail": resp[:120]})
 
         if path == "/api/ptzstop":
             ok, st, resp = ptz_move(0, 0, 0, 0)
+            # 2026-09-24: 变焦(按住连续)松开后, 在当前倍率下自动对焦一次(去抖)
+            if p.get("focus_once"):
+                schedule_focus_after_zoom(0.4)
             return self._json({"ok": ok, "http": st})
 
         if path == "/api/iris":
@@ -498,16 +597,68 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- 静态文件
     def _file(self, path):
+        """发送证据文件(抓图/录像)。
+
+        2026-09-24: 增加 HTTP Range(206) 支持并改为分块发送。
+          · 浏览器 <video> 播放/拖动进度依赖 206 + Accept-Ranges;
+          · 原来一次性 f.read() 整个文件, 4K 长录像(可达上 GB)会把整文件读进内存;
+          · 现在按 256KB 分块输出, 并正确处理 bytes=a-b / bytes=-N / 416。
+        """
         if not os.path.isfile(path):
             return self._json({"ok": False, "detail": "not found"}, 404)
-        with open(path, "rb") as f:
-            data = f.read()
-        ctype = "image/jpeg" if path.endswith(".jpg") else "video/mp4"
-        self.send_response(200)
+        size = os.path.getsize(path)
+        low = path.lower()
+        if low.endswith((".jpg", ".jpeg")):
+            ctype = "image/jpeg"
+        elif low.endswith(".png"):
+            ctype = "image/png"
+        elif low.endswith(".mp4"):
+            ctype = "video/mp4"
+        else:
+            ctype = "application/octet-stream"
+
+        start, end = 0, max(0, size - 1)
+        partial = False
+        rng = self.headers.get("Range") or ""
+        if rng.startswith("bytes="):
+            try:
+                first, _, last = rng[6:].split(",")[0].partition("-")
+                if first == "":                        # bytes=-N: 末尾 N 字节
+                    start = max(0, size - int(last))
+                else:
+                    start = int(first)
+                    if last:
+                        end = min(size - 1, int(last))
+                partial = True
+            except Exception:  # noqa: BLE001
+                start, end, partial = 0, max(0, size - 1), False
+        if size == 0 or start > end or start >= size:
+            self.send_response(416)
+            self.send_header("Content-Range", f"bytes */{size}")
+            self.end_headers()
+            return
+
+        length = end - start + 1
+        self.send_response(206 if partial else 200)
         self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        if partial:
+            self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(data)
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                remain = length
+                while remain > 0:
+                    chunk = f.read(min(262144, remain))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    remain -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass                                   # 客户端拖动进度会主动断开, 属正常
 
     def _static(self, path):
         rel = "index.html" if path in ("/", "") else path.lstrip("/")
@@ -523,6 +674,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
+        # 2026-09-24: 前端迭代期禁用浏览器缓存, 否则页面继续用旧版 -> "新加的东西看不到"
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(data)
 
@@ -655,6 +810,8 @@ def laser_state():
         "device": dev,
         "exclusive": busy,
         "controllable": not busy,
+        "rs485_rts": LASER_RS485_RTS,
+        "rs485_active_low": LASER_RS485_ACTIVE_LOW,
         "note": ("串口被本地 Qt 程序独占, 远程激光控制需在程序中新增 TCP 命令"
                  "(Pelco_D 命令表已具备, 约 60 行可完成)") if busy
                 else "串口空闲, 网关可直接下发 Pelco_D 控制",
@@ -711,12 +868,69 @@ Handler.do_POST = _do_POST
 
 
 # ============================================================ [追加] 红外激光直控 (Pelco_D)
+import array
+import fcntl
 import termios
 
 LASER_MAX_ON_SEC = 60          # 最长连续出光时间(秒), 到点自动关光
 LASER_DEV_DEFAULT = "/dev/ir_laser"
 _laser = {"fd": None, "dev": None, "on": False, "on_since": 0, "last": {},
           "replied": None}   # replied: 最近一次下发是否读到设备应答(None=尚无记录)
+
+
+# ---- RS-485 收发方向控制 (与主程序 IRLaser::sendCommand 保持一致) ----
+# CH347T 是半双工 RS-485: 必须由 RTS 驱动收发器方向, 否则数据发不上总线且收不到应答。
+# 实测 ch343 驱动打开串口后 RTS 默认"置位"(发送态), 不做切换会长期占用总线。
+# 参数取自 config/default.ini [serial], 与本地 Qt 程序同一数据源。
+LASER_RS485_RTS = True           # 是否启用 RTS 方向控制
+LASER_RS485_ACTIVE_LOW = False   # 反相电路(部分适配器 RTS 低电平为发送)
+
+
+def _load_laser_serial_cfg():
+    """从 config/default.ini 的 [serial] 读取 RS-485 方向控制参数"""
+    global LASER_RS485_RTS, LASER_RS485_ACTIVE_LOW
+    try:
+        txt = open(CONFIG_INI, encoding="utf-8", errors="replace").read()
+
+        def g(k, cur):
+            m = re.search(rf"^{k}\s*=\s*(.+)$", txt, re.M)
+            return m.group(1).strip() if m else cur
+        LASER_RS485_RTS = str(g("rs485_rts", "true")).lower() in ("1", "true", "yes", "on")
+        LASER_RS485_ACTIVE_LOW = str(
+            g("rs485_rts_active_low", "false")).lower() in ("1", "true", "yes", "on")
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] 读取 RS-485 串口配置失败, 使用默认: {e}", flush=True)
+
+
+def _laser_set_rts(fd, tx):
+    """切换 RS-485 收发方向: tx=True 发送态(驱动总线), False 接收态"""
+    if not LASER_RS485_RTS:
+        return
+    level = (not tx) if LASER_RS485_ACTIVE_LOW else tx
+    try:
+        buf = array.array("i", [termios.TIOCM_RTS])
+        fcntl.ioctl(fd, termios.TIOCMBIS if level else termios.TIOCMBIC, buf, True)
+    except OSError as e:
+        print(f"[WARN] 设置 RS-485 RTS 方向失败: {e}", flush=True)
+
+
+def _laser_write(fd, frame):
+    """发送一帧: RTS 拉到发送态 -> 写 -> tcdrain 等字节移出 -> 切回接收态
+
+    与主程序 IRLaser::sendCommand() 的 setRequestToSend/ flush 流程等价。
+    """
+    _laser_set_rts(fd, True)
+    try:
+        os.write(fd, frame)
+        try:
+            termios.tcdrain(fd)
+        except OSError:
+            pass
+    finally:
+        _laser_set_rts(fd, False)
+
+
+_load_laser_serial_cfg()      # 启动即读取一次, 供界面显示方向控制状态
 
 
 def _pelco(cmd1, cmd2, d1=0, d2=0, addr=1):
@@ -743,7 +957,10 @@ def laser_open(dev=LASER_DEV_DEFAULT):
             termios.tcsetattr(fd, termios.TCSANOW, a)
             _laser["fd"] = fd
             _laser["dev"] = dev
-            return True, f"已打开 {dev} @9600 8N1"
+            _load_laser_serial_cfg()
+            _laser_set_rts(fd, False)   # 打开即置接收态, 避免长期占用 RS-485 总线
+            return True, (f"已打开 {dev} @9600 8N1"
+                          + (" + RS-485 RTS 方向控制" if LASER_RS485_RTS else ""))
         except OSError as e:
             return False, f"打开串口失败: {e}"
 
@@ -764,7 +981,7 @@ def laser_send(cmd1, cmd2, d1=0, d2=0, read_ms=300):
         if fd is None:
             return False, "串口未打开", ""
         try:
-            os.write(fd, _pelco(cmd1, cmd2, d1, d2))
+            _laser_write(fd, _pelco(cmd1, cmd2, d1, d2))
         except OSError as e:
             return False, f"写入失败: {e}", ""
         try:
@@ -772,10 +989,18 @@ def laser_send(cmd1, cmd2, d1=0, d2=0, read_ms=300):
             resp = os.read(fd, 64)
         except (BlockingIOError, OSError):
             resp = b""
-        _laser["replied"] = bool(resp)
-        if not resp:
+        # 2026-09-24: 该型号**只对查询指令应答**, 控制指令(开/关光、亮度、角度、变焦等)
+        # 不会回读任何数据; 因此不能用"控制指令无回读"判定设备离线(会在界面误报"无应答")。
+        is_query = (cmd1, cmd2) in ((0x02, 0x01), (0x02, 0x03), (0x02, 0x05),
+                                    (0x02, 0x0F), (0x09, 0x01), (0x05, 0x10))
+        if resp or is_query:
+            _laser["replied"] = bool(resp)
+            _laser["replied_ms"] = time.time() * 1000
+        if resp:
+            return True, "ok", resp.hex(" ")
+        if is_query:
             return False, "无应答(激光器可能断电/未接线/串口异常)", ""
-        return True, "ok", resp.hex(" ")
+        return True, "已下发(该型号控制指令不应答, 可用\"查询\"确认设备在线)", ""
 
 
 def laser_off_internal():
@@ -784,7 +1009,7 @@ def laser_off_internal():
     if fd is None:
         return
     try:
-        os.write(fd, _pelco(0x01, 0x01, 0, 0))
+        _laser_write(fd, _pelco(0x01, 0x01, 0, 0))
     except OSError:
         pass
     _laser["on"] = False
@@ -812,8 +1037,14 @@ def laser_close():
         return True, "已关闭串口(并已关光)"
 
 
-def laser_status():
+def laser_status(probe=True, ttl_ms=3000):
+    """状态; probe=True 时用一条**查询指令**探测设备是否在线(带 TTL, 避免频繁占串口)"""
     with _lock:
+        now_ms = time.time() * 1000
+        if probe and _laser["fd"] is not None \
+                and now_ms - _laser.get("probe_ms", 0) >= ttl_ms:
+            laser_send(0x02, 0x03, 0, 0, read_ms=250)   # 查询亮度: 有回读即为在线
+            _laser["probe_ms"] = time.time() * 1000
         opened = _laser["fd"] is not None
         st = {
             "device": _laser.get("dev") or LASER_DEV_DEFAULT,
@@ -826,6 +1057,9 @@ def laser_status():
             "controllable": laser_state()["controllable"],
             "last": _laser.get("last", {}),
             "replied": _laser.get("replied"),
+            "replied_ms": _laser.get("replied_ms"),
+            "rs485_rts": LASER_RS485_RTS,
+            "rs485_active_low": LASER_RS485_ACTIVE_LOW,
         }
     return st
 
@@ -1215,10 +1449,428 @@ def _laser_autooff_disabled():
     return
 
 
+
+# =====================================================================
+# 证据文件管理: 列表 / 磁盘容量 / 保留天数清理  (2026-09-24)
+#   GET  /api/storage        保存路径 + 磁盘容量 + 保留策略 + 文件统计
+#   GET  /api/evidence       证据文件列表(视频+抓图, 按时间倒序, 带 /api/file/xx 播放地址)
+#   POST /api/retention      {days:N} 设置最长保存天数(0=不自动清理)并立即清理一次
+#   POST /api/cleanup        立即按当前保留天数清理
+#   POST /api/evidence/delete {name:"xxx.mp4"} 删除单个文件
+# =====================================================================
+import shutil
+
+SETTINGS_FILE = "/home/lcfc/remote/gateway_settings.json"
+_retention = {"days": 7}          # 最长保存天数; 0 = 不自动清理
+
+
+def _load_settings():
+    try:
+        with open(SETTINGS_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        _retention["days"] = max(0, min(3650, int(d.get("retention_days", _retention["days"]))))
+    except Exception:
+        pass
+
+
+def _save_settings():
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"retention_days": _retention["days"]}, f, ensure_ascii=False, indent=1)
+    except Exception as e:
+        print(f"[WARN] 保存保留设置失败: {e}", flush=True)
+
+
+def _fmt_size(n):
+    n = float(n)
+    for u in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024 or u == "TB":
+            return f"{n:.0f}{u}" if u == "B" else f"{n:.1f}{u}"
+        n /= 1024.0
+
+
+def evidence_list(limit=500):
+    """证据目录文件列表(视频/抓图), 按修改时间倒序"""
+    out = []
+    try:
+        names = os.listdir(EVIDENCE_DIR)
+    except OSError:
+        return out
+    for name in names:
+        low = name.lower()
+        if not low.endswith((".mp4", ".jpg", ".jpeg", ".png")):
+            continue
+        p = os.path.join(EVIDENCE_DIR, name)
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        out.append({"name": name, "bytes": st.st_size, "mtime": int(st.st_mtime),
+                    "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+                    "kind": "video" if low.endswith(".mp4") else "image",
+                    "url": "/api/file/" + name})
+    out.sort(key=lambda x: x["mtime"], reverse=True)
+    return out[:limit]
+
+
+def storage_info():
+    base = EVIDENCE_DIR if os.path.isdir(EVIDENCE_DIR) else "/"
+    du = shutil.disk_usage(base)
+    files = evidence_list(limit=100000)
+    videos = [f for f in files if f["kind"] == "video"]
+    return {"ok": True, "path": EVIDENCE_DIR,
+            "disk_total": du.total, "disk_used": du.used, "disk_free": du.free,
+            "disk_total_text": _fmt_size(du.total), "disk_free_text": _fmt_size(du.free),
+            "disk_free_pct": round(du.free * 100.0 / du.total, 1) if du.total else 0,
+            "file_count": len(files), "video_count": len(videos),
+            "evidence_text": _fmt_size(sum(f["bytes"] for f in files)),
+            "newest": files[0]["time"] if files else "", "oldest": files[-1]["time"] if files else "",
+            "retention_days": _retention["days"],
+            "recording": bool(_rec.get("proc") and _rec["proc"].poll() is None),
+            "rec_file": os.path.basename(_rec.get("path") or "")}
+
+
+def cleanup_evidence(days=None):
+    """删除超过保留天数的证据文件; days=0 表示不清理。
+    10 分钟内修改过的文件跳过(可能正在录制/写入)。"""
+    d = _retention["days"] if days is None else max(0, int(days))
+    if d <= 0:
+        return {"ok": True, "deleted": 0, "freed": 0, "detail": "未设置最长保存天数(0=不自动清理)"}
+    cutoff = time.time() - d * 86400
+    now = time.time()
+    deleted = freed = 0
+    for f in evidence_list(limit=100000):
+        if f["mtime"] >= cutoff or (now - f["mtime"]) < 600:
+            continue
+        try:
+            os.remove(os.path.join(EVIDENCE_DIR, f["name"]))
+            deleted += 1
+            freed += f["bytes"]
+        except OSError as e:
+            print(f"[WARN] 清理失败 {f['name']}: {e}", flush=True)
+    detail = f"按保留 {d} 天删除 {deleted} 个文件, 释放 {_fmt_size(freed)}"
+    if deleted:
+        print("[cleanup] " + detail, flush=True)
+    return {"ok": True, "deleted": deleted, "freed": freed, "detail": detail}
+
+
+def _cleanup_worker():
+    """启动后清理一次, 之后每小时一次"""
+    time.sleep(20)
+    while True:
+        try:
+            cleanup_evidence()
+        except Exception as e:
+            print(f"[WARN] 定期清理异常: {e}", flush=True)
+        time.sleep(3600)
+
+
+_load_settings()
+
+
+_orig_do_GET6 = Handler.do_GET
+_orig_do_POST6 = Handler.do_POST
+
+
+def _do_GET6(self):
+    path = self.path.split("?")[0]
+    if path == "/api/storage":
+        return self._json(storage_info())
+    if path == "/api/evidence":
+        return self._json({"ok": True, "files": evidence_list(),
+                           "path": EVIDENCE_DIR, "retention_days": _retention["days"]})
+    return _orig_do_GET6(self)
+
+
+def _do_POST6(self):
+    path = self.path.split("?")[0]
+    if path == "/api/retention":
+        p = self._body_json()
+        try:
+            days = max(0, min(3650, int(p.get("days") or 0)))
+        except Exception:
+            return self._json({"ok": False, "detail": "天数无效"})
+        _retention["days"] = days
+        _save_settings()
+        res = cleanup_evidence(days)
+        print(f"[gateway] 最长保存天数 = {days} 天; 立即清理: {res['detail']}", flush=True)
+        return self._json({"ok": True, "retention_days": days, "cleanup": res})
+    if path == "/api/cleanup":
+        return self._json(cleanup_evidence())
+    if path == "/api/evidence/delete":
+        p = self._body_json()
+        name = os.path.basename(str(p.get("name") or ""))
+        if not name:
+            return self._json({"ok": False, "detail": "缺少文件名"})
+        try:
+            os.remove(os.path.join(EVIDENCE_DIR, name))
+            print(f"[gateway] 删除证据文件 {name}", flush=True)
+            return self._json({"ok": True, "detail": "已删除 " + name})
+        except OSError as e:
+            return self._json({"ok": False, "detail": f"删除失败: {e}"})
+    return _orig_do_POST6(self)
+
+
+Handler.do_GET = _do_GET6
+Handler.do_POST = _do_POST6
+
+
+# =====================================================================
+# 热像仪真实温度 (ISAPI 全屏测温) —— 供 Web 鼠标探针使用 (2026-09-28)
+#   GET /api/thermal/temp?x=<ix>&y=<iy>
+#     -> {"ok":true,"x":..,"y":..,"temp":35.7,"w":640,"h":512,"ts":..}
+#   数据来源: GET /ISAPI/Thermal/channels/1/thermometry/jpegPicWithAppendData?format=json
+#             -> multipart: [application/json] + [image/pjpeg] + [application/octet-stream]
+#             第三段为 640x512 个 float32(小端, °C) 的全屏温度矩阵(与热像视频帧同尺寸)。
+#   说明: 单次抓取约 1.3MB, 这里做 ~150ms 缓存, 避免鼠标高频移动时反复抓取。
+# =====================================================================
+import array as _array
+
+
+def load_thermal_cfg():
+    """从程序配置读热像仪(测温相机)地址与账号, 与可见光相机相互独立"""
+    ip, port, user, pw = "192.168.10.211", 80, "admin", "cisdi135"
+    try:
+        txt = open(CONFIG_INI, encoding="utf-8", errors="replace").read()
+
+        def g(key, cur):
+            m = re.search(rf"^{key}\s*=\s*(.+)$", txt, re.M)
+            return m.group(1).strip() if m else cur
+
+        ip = g("thermal_camera_ip", ip)
+        port = int(g("thermal_camera_port", port))
+        user = g("thermal_camera_user", user)
+        pw = g("thermal_camera_pass", pw)
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] 读热像仪配置失败, 使用默认: {e}", flush=True)
+    return ip, port, user, pw
+
+
+TH_IP, TH_PORT, TH_USER, TH_PW = load_thermal_cfg()
+TH_BASE = f"http://{TH_IP}:{TH_PORT}"
+_TH_URL = ("/ISAPI/Thermal/channels/1/thermometry/"
+           "jpegPicWithAppendData?format=json")
+
+_th_lock = threading.Lock()
+_th_cache = {"ts": 0.0, "w": 0, "h": 0, "data": None}
+
+
+def _thermal_fetch_matrix(timeout=6):
+    """抓取并解析全屏温度矩阵; 返回 (w, h, array('f')) 或 None"""
+    pm = urlreq.HTTPPasswordMgrWithDefaultRealm()
+    pm.add_password(None, TH_BASE + "/", TH_USER, TH_PW)
+    opener = urlreq.build_opener(urlreq.HTTPDigestAuthHandler(pm))
+    req = urlreq.Request(TH_BASE + _TH_URL)
+    with opener.open(req, timeout=timeout) as r:
+        body = r.read()
+    octet = None
+    for pt in body.split(b"--boundary"):
+        he = pt.find(b"\r\n\r\n")
+        if he < 0:
+            continue
+        if b"application/octet-stream" in pt[:he]:
+            data = pt[he + 4:]
+            if data.endswith(b"\r\n"):
+                data = data[:-2]
+            octet = data
+    if not octet or len(octet) % 4 != 0:
+        return None
+    w = 640
+    h = len(octet) // 4 // w
+    if h <= 0:
+        return None
+    arr = _array.array("f")
+    arr.frombytes(octet)
+    return w, h, arr
+
+
+def thermal_matrix(cache_s=0.15):
+    """带缓存的全屏温度矩阵; 返回 (w, h, array('f')) 或 None"""
+    now = time.time()
+    with _th_lock:
+        if _th_cache["data"] is not None and now - _th_cache["ts"] < cache_s:
+            return _th_cache["w"], _th_cache["h"], _th_cache["data"]
+    try:
+        got = _thermal_fetch_matrix()
+    except Exception as e:  # noqa: BLE001
+        print(f"[WARN] 热像仪测温抓取失败: {e}", flush=True)
+        got = None
+    with _th_lock:
+        if got is not None:
+            _th_cache.update({"ts": time.time(), "w": got[0], "h": got[1], "data": got[2]})
+        if _th_cache["data"] is None:
+            return None
+        return _th_cache["w"], _th_cache["h"], _th_cache["data"]
+
+
+# =====================================================================
+# 相机系统时间校准 (ISAPI /ISAPI/System/time) —— 网页端每次连接时自动调用
+#   GET /api/camera/time/sync?which=both|thermal|visible  (默认 both)
+#   策略: GET 读时间文档(保留 timeZone/timeMode/命名空间) -> 仅替换 <localTime>
+#         -> 原样 PUT 回写 -> GET 读回校验, 返回设备时间与本机偏差(ms)。
+#   说明: 对齐 Qt 程序 documents/相机自动校时说明.md 的"最小影响原则"。
+# =====================================================================
+_time_sync_lock = threading.Lock()
+
+
+def _local_time_iso(offset_ms=0):
+    t = time.time() + (offset_ms / 1000.0)
+    lt = time.localtime(t)
+    off = -(time.altzone if (lt.tm_isdst and time.daylight) else time.timezone)
+    sign = "+" if off >= 0 else "-"
+    a = abs(int(off))
+    return time.strftime("%Y-%m-%dT%H:%M:%S", lt) + "%s%02d:%02d" % (sign, a // 3600, (a % 3600) // 60)
+
+
+def _isapi_time_sync_one(which):
+    import datetime as _dt
+    if which == "visible":
+        ip, port, user, pw = CAM_IP, CAM_PORT, CAM_USER, CAM_PW
+    else:
+        ip, port, user, pw = TH_IP, TH_PORT, TH_USER, TH_PW
+    base = f"http://{ip}:{port}"
+    pm = urlreq.HTTPPasswordMgrWithDefaultRealm()
+    pm.add_password(None, base + "/", user, pw)
+    opener = urlreq.build_opener(urlreq.HTTPDigestAuthHandler(pm))
+    url = base + "/ISAPI/System/time"
+
+    # 1) 读文档作为模板(保留时区/对时模式/命名空间, 只改 localTime)
+    with opener.open(urlreq.Request(url), timeout=8) as r:
+        doc = r.read().decode("utf-8", "replace")
+
+    # 2) 闭环迭代: 写入 -> 读回 -> 修正补偿(补偿量=HTTP 往返 + 设备应用延迟), 目标偏差 < 500ms
+    comp_ms = 0
+    wrote = ""
+    dev = ""
+    delta_ms = None
+    for _ in range(3):
+        wrote = _local_time_iso(comp_ms)
+        body = re.sub(r"<localTime>.*?</localTime>",
+                      f"<localTime>{wrote}</localTime>", doc, count=1)
+        req = urlreq.Request(url, data=body.encode("utf-8"), method="PUT")
+        req.add_header("Content-Type", "application/xml")
+        with opener.open(req, timeout=8) as r:
+            r.read()
+        with opener.open(urlreq.Request(url), timeout=8) as r:
+            back = r.read().decode("utf-8", "replace")
+        m = re.search(r"<localTime>(.*?)</localTime>", back)
+        dev = m.group(1) if m else ""
+        delta_ms = None
+        try:
+            dv = _dt.datetime.strptime(dev[:19], "%Y-%m-%dT%H:%M:%S")
+            delta_ms = int((dv - _dt.datetime.now()).total_seconds() * 1000)
+        except Exception:  # noqa: BLE001
+            break
+        if abs(delta_ms) <= 500:
+            break
+        comp_ms -= delta_ms
+    return {"ok": True, "which": which, "device": dev, "wrote": wrote, "delta_ms": delta_ms}
+
+
+def _isapi_time_sync(which="both"):
+    """校准相机时间; 返回逐台结果。加锁串行, 避免并发重复写入。"""
+    targets = ["thermal", "visible"] if which in ("both", "", None) else [which]
+    out = {}
+    with _time_sync_lock:
+        for t in targets:
+            try:
+                out[t] = _isapi_time_sync_one(t)
+            except Exception as e:  # noqa: BLE001
+                out[t] = {"ok": False, "which": t, "detail": str(e)}
+    return {"ok": any(v.get("ok") for v in out.values()), "results": out}
+
+
+_orig_do_GET7 = Handler.do_GET
+
+
+def _do_GET7(self):
+    path = self.path.split("?")[0]
+    # ---- 相机校时: 网页端每次连接相机后调用 ----
+    if path == "/api/camera/time/sync":
+        qs = {}
+        if "?" in self.path:
+            for kv in self.path.split("?", 1)[1].split("&"):
+                if "=" in kv:
+                    k, v = kv.split("=", 1)
+                    qs[k] = v
+        res = _isapi_time_sync(qs.get("which", "both"))
+        try:
+            for k, v in res.get("results", {}).items():
+                if v.get("ok"):
+                    print(f"[gateway] {k} 校时成功: 设备 {v.get('device')} 偏差 {v.get('delta_ms')} ms", flush=True)
+                else:
+                    print(f"[gateway] {k} 校时失败: {v.get('detail')}", flush=True)
+        except Exception:  # noqa: BLE001
+            pass
+        return self._json(res)
+    if path in ("/api/thermal/temp", "/api/thermal/matrix"):
+        qs = {}
+        if "?" in self.path:
+            for kv in self.path.split("?", 1)[1].split("&"):
+                if "=" in kv:
+                    k, v = kv.split("=", 1)
+                    qs[k] = v
+
+        m = thermal_matrix()
+        if not m:
+            return self._json({"ok": False, "detail": "未获取到测温数据"})
+        w, h, arr = m
+
+        # ---- 整幅温度矩阵(降采样, 二进制) ----
+        #   GET /api/thermal/matrix?step=4 -> body: ow*oh 个 float32(小端, °C)
+        #   尺寸/步长由响应头 X-Width / X-Height / X-Step 给出。
+        #   用途: 前端"本地查表"取任意像素/目标框的温度, 避免鼠标高频移动时逐点请求,
+        #         且数值即相机实测(不再用"灰度->温度"近似)。
+        if path == "/api/thermal/matrix":
+            try:
+                step = int(qs.get("step", "4") or 4)
+            except Exception:  # noqa: BLE001
+                step = 4
+            step = max(1, min(16, step))
+            ow, oh = w // step, h // step
+            if ow <= 0 or oh <= 0:
+                return self._json({"ok": False, "detail": "降采样参数无效"})
+            out = _array.array("f")
+            for oy in range(oh):                     # 最近邻抽样: 计算量=输出像素数
+                base = (oy * step) * w
+                out.extend(arr[base:base + ow * step:step])
+            body = out.tobytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("X-Width", str(ow))
+            self.send_header("X-Height", str(oh))
+            self.send_header("X-Step", str(step))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        # ---- 单点接口(兼容保留) ----
+        try:
+            ix = int(qs.get("x", "-1"))
+            iy = int(qs.get("y", "-1"))
+        except Exception:  # noqa: BLE001
+            return self._json({"ok": False, "detail": "坐标无效"})
+        if ix < 0 or iy < 0 or ix >= w or iy >= h:
+            return self._json({"ok": False, "detail": "坐标越界"})
+        return self._json({"ok": True, "x": ix, "y": iy,
+                           "temp": round(float(arr[iy * w + ix]), 2),
+                           "w": w, "h": h, "ts": int(time.time() * 1000)})
+    return _orig_do_GET7(self)
+
+
+Handler.do_GET = _do_GET7
+print(f"[gateway] 热像仪温度接口已启用: {TH_BASE}{_TH_URL.split('?')[0]}", flush=True)
+
+
 if __name__ == "__main__":
     os.makedirs(EVIDENCE_DIR, exist_ok=True)
     threading.Thread(target=prog_tcp_worker, daemon=True).start()
+    threading.Thread(target=_cleanup_worker, daemon=True).start()   # 超期证据定期清理
     print(f"[gateway] 相机 {CAM_IP}:{CAM_PORT} 用户 {CAM_USER}", flush=True)
     print(f"[gateway] RTSP 出口 {GO2RTC_RTSP}  证据目录 {EVIDENCE_DIR}", flush=True)
+    print(f"[gateway] 最长保存天数 {_retention['days']} 天(0=不自动清理), 设置文件 {SETTINGS_FILE}", flush=True)
     print(f"[gateway] 监听 :{PORT}", flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

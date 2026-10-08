@@ -221,6 +221,41 @@ CONFIG_INI = "/home/tianheng/project/SubseaImagingSystem/config/default.ini"
 
 未知 POST 路径 → `{"ok":false,"detail":"unknown api"}` + 404。
 
+### 6.2.1 热像仪全屏测温（GET，相机实测温度）
+
+数据源为相机 ISAPI「抓热图（JPEG + 附加温度数据）」，返回 **640×512 个 `float32`(°C, 小端)** 的
+全屏温度矩阵（详见 `documents/热像仪温度接口说明.md`）；网关侧约 150ms 缓存，避免高频重复抓取。
+
+| 路径 | 参数 | 说明 |
+|------|------|------|
+| `/api/thermal/matrix` | `step?`（默认 4） | 返回**整幅温度矩阵**（二进制 `application/octet-stream`），最近邻降采样；尺寸/步长见响应头 `X-Width`/`X-Height`/`X-Step`。前端据此**本地查表**取任意像素/目标框温度（默认 `step=4` → 160×128 ≈ 80KB） |
+| `/api/thermal/temp` | `x`,`y` | 返回单像素实测温度 `{ok,x,y,temp,w,h,ts}`（兼容保留；前端已改用矩阵接口） |
+
+> 前端鼠标探针与热源显示温度**只使用相机实测值**；无实测数据时显示 `--`，
+> **不再使用"灰度→温度"近似**（该近似对"伪彩 Ironbow2 + 自动量程"的画面无意义，
+> 会把高亮的手（~36°C）算成 100°C 之类的错误值）。
+
+> **检测阈值口径（2026-09-28 起）**：`/api/detect` 的 `min_temp`（最低温度）与
+> `temp_threshold_delta`（温度增量）现为**相机实测温度(°C)**：
+> 自动模式 阈值 = 环境温度(由实测矩阵低分位数自动估计) + 温度增量；手动模式 阈值 = 最低温度。
+> 新默认值：`min_temp=35.0`、`temp_threshold_delta=5.0`（旧的 44/10 属伪温度尺度，已作废）。
+> 无实测温度时**检测暂停**，不再用灰度伪温度顶替；右侧色条屏蔽默认关闭(实测矩阵无需屏蔽)。
+
+### 6.2.2 相机系统时间校准（GET）
+
+| 路径 | 参数 | 说明 |
+|------|------|------|
+| `/api/camera/time/sync` | `which?` = `both`(默认) / `thermal` / `visible` | 按顺序校准指定相机的系统时间 |
+
+策略（对齐 Qt 程序 `documents/相机自动校时说明.md` 的"最小影响原则"）：
+`GET /ISAPI/System/time` 读文档（保留 `timeZone` / `timeMode` / XML 命名空间）→ **仅替换 `<localTime>`**
+→ `PUT` 原样回写 → 读回校验并**闭环迭代**（最多 3 轮，目标偏差 < 500 ms，补偿量抵消 HTTP 往返+设备应用延迟）。
+返回 `{"ok":true,"results":{"thermal":{...},"visible":{...}}}`，每台含 `device`（设备回读时间）、
+`wrote`（写入值）、`delta_ms`（设备 − 本机，ms）。
+
+**触发时机**：网页端**每次连接相机成功后自动调用一次**（热像仪 / 可见光的连接回调里
+`syncCameraTime('both')`，5 s 防抖），使画面上相机 OSD 时间与录像时间戳一致。
+
 ### 6.3 SSE 事件（`GET /api/events`）
 
 | 事件 | 说明 |
@@ -967,3 +1002,38 @@ DISPLAY=:0 gst-launch-1.0 -e \
 
 
 _最后更新：Qt(2026-09-23) 选主码流 4K 时程序内不显示画面、自动拉起外部 GStreamer(NVDEC+零拷贝)窗口并提示（见 §20）；v15 —— 定位 "Jetson 上看 4K" 的正确通路：VLC/mpv 在 Jetson 上均不可行（无硬解后端），改用 GStreamer + NVDEC(`nvv4l2decoder`) + `nveglglessink` 零拷贝，实测 CPU 仅 13%、4K 满 25fps，并提供一键脚本 `/home/lcfc/remote/watch.sh`；v14 —— 修复 VLC 播 4K 卡顿（go2rtc 不支持 UDP → `--rtsp-tcp`；4K I 帧 801KB 打爆默认 250KB 缓冲 → `--rtsp-frame-buffer-size=2000000`）；v13 —— Jetson 安装配置 VLC + 码流地址帮助块 + HEVC 帮助整合；v12 —— 六路码流与 HEVC 自检；v11 —— 热像仪鼠标探针；v10 —— 温度条误识别修复、右上角去掉 640×512 50fps、Qt 探针加灰度。_
+
+
+---
+
+## 附: 证据文件管理与录像修复 (2026-09-24)
+
+### 新增接口
+
+| 接口 | 说明 |
+|------|------|
+| `GET /api/storage` | 保存路径、磁盘总量/剩余/占比、证据占用、文件数/录像段数、最新/最旧时间、保留天数、是否在录像 |
+| `GET /api/evidence` | 证据文件列表(录像+抓图, 按时间倒序, 含 `/api/file/<名字>` 播放地址) |
+| `POST /api/retention` | `{days:N}` 设置最长保存天数(0=不自动清理), 立即清理一次并持久化到 `gateway_settings.json` |
+| `POST /api/cleanup` | 立即按当前保留天数清理 |
+| `POST /api/evidence/delete` | `{name:"xxx.mp4"}` 删除单个证据文件 |
+
+保留策略: 启动后 20s 清理一次, 之后每小时一次; **10 分钟内修改过的文件不删**(可能正在录制)。
+
+### 录像修复(重要)
+
+现象: 选 4K 等**直转流**录像会生成 **0 字节** mp4, 点击播放无内容。
+
+原因: go2rtc 直转流(`vis4k`/`vis1080`/`thermal` 等)同时带音轨 **G.711(PCM A-Law)**,
+MP4 容器不支持该编码, ffmpeg 报
+`Could not find tag for codec pcm_alaw in stream #1, codec not currently supported in container`
+并拒绝写文件头。
+
+修复: 录像改为**只取视频轨直拷** `-map 0:v:0 -c:v copy -an -movflags +faststart -fflags +genpts`,
+并增加"启动 1 秒存活检查"(失败时给出 ffmpeg 真实原因并删除 0 字节残留)、`record_stop` 校验输出非空。
+实测: vis4k 6s -> 8.2MB(hevc 3840x2160/25fps), thermal 6s -> 0.3MB。
+
+### 文件服务
+
+`/api/file/<名字>` 与 `/evidence/<名字>` 支持 **HTTP Range(206)** 并按 256KB 分块发送:
+浏览器 `<video>` 可正常播放与拖动进度, 且不再把整个(可能上 GB 的)录像读进内存。

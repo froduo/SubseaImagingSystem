@@ -74,6 +74,12 @@
   .in-unit{display:flex;align-items:center;gap:4px;min-width:0}
   .in-unit>input{flex:1;min-width:0;width:100%}
   .in-unit>span{color:#7d8fa3;font-size:11px;white-space:nowrap}
+  /* 温度控件: 至少容纳 3 个字符(如 5.2 / 0.2 / 110.9); 隐藏数字微调箭头以免挤占宽度 */
+  #d-mintemp,#d-delta{-webkit-appearance:textfield;-moz-appearance:textfield;appearance:textfield;
+    min-width:5.2em;text-align:center}
+  #d-mintemp::-webkit-outer-spin-button,#d-mintemp::-webkit-inner-spin-button,
+  #d-delta::-webkit-outer-spin-button,#d-delta::-webkit-inner-spin-button{
+    -webkit-appearance:none;appearance:none;margin:0}
   .kv{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:#9fb3c6}
   .kv b{color:#e8f1fa}
   /* 长文本(如"当前文件")单行横向显示: 不换行 + 省略号, 完整内容见 title 悬浮 */
@@ -115,7 +121,7 @@
         <div class="kv"><span>距离</span><b id="labelDistance">--</b></div>
         <div class="kv"><span>最高温度</span><b id="labelMaxTemp">--</b></div>
         <div class="kv"><span>目标距中心像素差</span><b id="labelPixDiff">--</b></div>
-        <div class="kv"><span>鼠标坐标 / 温度</span><b id="probeInfo">--</b></div>
+        <div class="kv"><span>鼠标坐标 / 温度(相机实测)</span><b id="probeInfo">--</b></div>
       </div>
     </div>
 
@@ -162,10 +168,12 @@
               <label>网格显示</label>
               <select id="d-grid"><option value="true">开</option><option value="false">关</option></select>
 
-              <label>最低温度</label>
-              <div class="in-unit"><input type="number" id="d-mintemp" step="0.5"><span>°C</span></div>
-              <label>温度增量</label>
-              <div class="in-unit"><input type="number" id="d-delta" step="0.5"><span>°C</span></div>
+              <label title="仅手动模式生效">最低温度</label>
+              <div class="in-unit"><input type="number" id="d-mintemp" step="0.1" min="-50" max="200"
+                     title="真实实测温度(°C), 保留 1 位小数(如 28.4 / 5.2 / 0.2 / 110.9)"><span>°C</span></div>
+              <label title="仅自动模式生效">温度增量</label>
+              <div class="in-unit"><input type="number" id="d-delta" step="0.1" min="-50" max="200"
+                     title="真实实测温度(°C), 保留 1 位小数(如 28.4 / 5.2 / 0.2 / 110.9)"><span>°C</span></div>
 
               <label>最小面积</label>
               <div class="in-unit"><input type="number" id="d-minarea" step="1"><span>px</span></div>
@@ -191,10 +199,11 @@
             <div class="kv"><span>目标最高温</span><b id="d-temp">-</b></div>
             <div class="kv"><span>目标面积</span><b id="d-area">-</b></div>
             <div class="kv"><span>目标像素坐标</span><b id="d-xy">-</b></div>
+            <div class="kv"><span>环境温度(自动)</span><b id="d-env">-</b></div>
             <div class="kv"><span>当前阈值</span><b id="d-thr">-</b></div>
             <div class="hint gray" id="d-run">热像仪未连接，检测暂停</div>
             <div class="hint gray" id="d-mask"></div>
-            <div class="hint gray">算法与本地程序完全一致(灰度→伪温度→阈值→开/闭运算→4邻域连通域→取最热)</div>
+            <div class="hint gray">检测阈值为<b>相机实测温度(°C)</b>：分割用实测温度矩阵(无数据时检测暂停)；阈值→开/闭运算→4邻域连通域→取最热</div>
           </div>
         </div>
 
@@ -268,41 +277,36 @@
           <div class="grp">
             <h4>镜头参数 <span class="en">Lens</span></h4>
             <!-- 命名规范: 按钮统一为「标签+ / 标签-」, 两列等宽; 当前值统一带参数名与单位 -->
-            <div class="ctl">
-              <div class="ctl-head"><span title="光学变焦(zoom): 改变焦距以放大/缩小目标">变焦</span><b id="vZoom">-</b></div>
-              <div class="ctl-btns">
-                <button class="sec" title="变焦+ 长焦: 视场变窄、目标放大(按住连续)" onpointerdown="zoom(1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">变焦+</button>
-                <button class="sec" title="变焦- 广角: 视场变宽、目标缩小(按住连续)" onpointerdown="zoom(-1)" onpointerup="ptzStop()" onpointerleave="ptzStop()">变焦-</button>
-              </div>
+            <!-- 2026-09-24: 同类操作压成一行(标签 + 按钮 + 当前值), 缩短「镜头参数」占高 -->
+            <div class="row" style="align-items:center;gap:6px">
+              <span title="光学变焦(zoom): 改变焦距以放大/缩小目标" style="min-width:34px">变焦</span>
+              <button class="sec" style="flex:0 0 auto" title="变焦+ 长焦: 视场变窄、目标放大(按住连续)" onpointerdown="zoom(1)" onpointerup="zoomStop()" onpointerleave="zoomStop()">变焦+</button>
+              <button class="sec" style="flex:0 0 auto" title="变焦- 广角: 视场变宽、目标缩小(按住连续)" onpointerdown="zoom(-1)" onpointerup="zoomStop()" onpointerleave="zoomStop()">变焦-</button>
+              <b id="vZoom" style="margin-left:auto">-</b>
             </div>
-            <div class="ctl">
-              <div class="ctl-head"><span title="聚焦(focus): 调整最小聚焦距离档位(近处 ~ 无限远)">聚焦</span><b id="vFocus">-</b></div>
-              <div class="ctl-btns">
-                <button class="sec" title="聚焦+ 更远(档位趋向无限远)" onclick="focus(1)">聚焦+</button>
-                <button class="sec" title="聚焦- 更近(档位趋向近处)" onclick="focus(-1)">聚焦-</button>
-              </div>
+            <div class="row" style="align-items:center;gap:6px">
+              <span title="聚焦(focus): 调整最小聚焦距离档位(近处 ~ 无限远)" style="min-width:34px">聚焦</span>
+              <button class="sec" style="flex:0 0 auto" title="聚焦+ 更远(档位趋向无限远)" onclick="focus(1)">聚焦+</button>
+              <button class="sec" style="flex:0 0 auto" title="聚焦- 更近(档位趋向近处)" onclick="focus(-1)">聚焦-</button>
+              <b id="vFocus" style="margin-left:auto">-</b>
             </div>
-            <div class="ctl">
-              <div class="ctl-head"><span title="光圈(iris): 控制进光量, IrisLevel 数值越大画面越暗">光圈</span><b id="vIris">-</b></div>
-              <div class="ctl-btns">
-                <button class="sec" title="光圈+ 开大: 进光量增大、画面变亮" onclick="irisStep(1)">光圈+</button>
-                <button class="sec" title="光圈- 关小: 进光量减小、画面变暗" onclick="irisStep(-1)">光圈-</button>
-              </div>
+            <div class="row" style="align-items:center;gap:6px">
+              <span title="光圈(iris): 控制进光量, IrisLevel 数值越大画面越暗" style="min-width:34px">光圈</span>
+              <button class="sec" style="flex:0 0 auto" title="光圈+ 开大: 进光量增大、画面变亮" onclick="irisStep(1)">光圈+</button>
+              <button class="sec" style="flex:0 0 auto" title="光圈- 关小: 进光量减小、画面变暗" onclick="irisStep(-1)">光圈-</button>
+              <b id="vIris" style="margin-left:auto">-</b>
             </div>
-            <div class="ctl">
-              <div class="ctl-head"><span title="增益(gain): 信号放大 0~100, 越大越亮但噪声越多">增益</span><b id="vGain">-</b></div>
-              <div class="ctl-btns">
-                <button class="sec" title="增益+10(GainLevel +10)" onclick="gainStep(10)">增益+</button>
-                <button class="sec" title="增益-10(GainLevel -10)" onclick="gainStep(-10)">增益-</button>
-              </div>
+            <div class="row" style="align-items:center;gap:6px">
+              <span title="增益(gain): 信号放大 0~100, 越大越亮但噪声越多" style="min-width:34px">增益</span>
+              <button class="sec" style="flex:0 0 auto" title="增益+10(GainLevel +10)" onclick="gainStep(10)">增益+</button>
+              <button class="sec" style="flex:0 0 auto" title="增益-10(GainLevel -10)" onclick="gainStep(-10)">增益-</button>
+              <b id="vGain" style="margin-left:auto">-</b>
             </div>
-            <div class="ctl">
-              <div class="ctl-head"><span title="曝光模式(exposure): 自动(AE) 或 手动(由光圈/增益决定)">曝光</span>
-                <span style="color:#7d8fa3;font-size:11px">自动 / 手动</span></div>
-              <div class="ctl-btns">
-                <button class="sec" title="自动曝光: 相机自动调整画面亮度" onclick="exposure('auto')">曝光自动</button>
-                <button class="sec" title="手动曝光: 先切手动, 再由光圈/增益控制" onclick="exposure('manual')">曝光手动</button>
-              </div>
+            <div class="row" style="align-items:center;gap:6px">
+              <span title="曝光模式(exposure): 自动(AE) 或 手动(由光圈/增益决定)" style="min-width:34px">曝光</span>
+              <button class="sec" style="flex:0 0 auto" title="自动曝光: 相机自动调整画面亮度" onclick="exposure('auto')">自动</button>
+              <button class="sec" style="flex:0 0 auto" title="手动曝光: 先切手动, 再由光圈/增益控制" onclick="exposure('manual')">手动</button>
+              <span id="vExpo" style="margin-left:auto;color:#7d8fa3;font-size:11px">自动 / 手动</span>
             </div>
             <div class="hint gray">
               变焦为<i>按住</i>连续动作; 聚焦按最小聚焦距离档位、光圈/增益为<i>单击</i>步进;
@@ -319,18 +323,42 @@
           </div>
           <div class="grp">
             <h4>录像取证</h4>
-            <div class="row"><label>码流</label>
+            <!-- ===== ① 录像控制: 码流 / 开始·结束 / 抓图 / 当前文件 ===== -->
+            <div class="row" style="align-items:center;gap:6px">
+              <label>码流</label>
               <select id="recStream" style="flex:1">
                 <option value="vis1080h264">可见光 1080p 通用(H.264)</option>
                 <option value="vis1080">可见光 1080p 原始(H.265 1Mbps)</option>
                 <option value="vis4k">可见光 4K 原始(H.265 12Mbps)</option>
                 <option value="vis102">可见光子码流 704x576</option>
                 <option value="thermal">热像仪 640x512</option>
-              </select></div>
-            <div class="row"><button class="warn" id="bRec2" onclick="toggleRec()">开始录像</button>
-              <button onclick="snapshot()">抓图</button></div>
-            <div class="kv"><span>当前文件</span><b id="vRecFile" class="oneline" title="-">-</b></div>
-            <div id="snapList" style="font-size:11px;color:#9fb3c6;margin-top:4px"></div>
+              </select>
+            </div>
+            <div class="row" style="align-items:center;gap:6px">
+              <button class="warn" id="bRec2" onclick="recStart()">开始录像</button>
+              <button class="sec" id="bRecStop" onclick="recStop()">结束录像</button>
+              <button class="sec" onclick="snapshot()">抓图</button>
+              <b id="vRecFile" class="oneline" style="margin-left:auto;font-weight:400;color:#9fb3c6"
+                 title="当前录像文件">-</b>
+            </div>
+
+            <!-- ===== ② 服务器存储: 录像写入网关磁盘; 「最长保存」与容量均针对该路径 ===== -->
+            <div class="hint gray" style="margin:8px 0 2px">服务器存储（录像写入网关，保存天数与容量均针对此路径）</div>
+            <div class="kv"><span>保存路径</span><b id="vPath" class="oneline" title="网关上的证据保存目录">-</b></div>
+            <div class="kv"><span>磁盘容量</span><b id="vDisk" title="该保存路径所在磁盘: 剩余 / 总容量">-</b></div>
+            <div class="kv"><span>证据占用</span><b id="vEvStat" title="证据文件合计占用 / 录像段数 / 文件数">-</b></div>
+            <div class="row" style="align-items:center;gap:6px">
+              <label title="服务器保存路径的保留天数: 超出的录像/抓图自动删除; 0 = 不自动清理">最长保存</label>
+              <input id="retDays" type="number" min="0" max="3650" step="1" value="7" style="width:76px">
+              <span style="color:#7d8fa3">天</span>
+              <button class="sec" onclick="saveRetention()">保存设置</button>
+              <button class="sec" onclick="cleanupNow()">立即清理</button>
+            </div>
+
+            <!-- 证据文件列表: 录像可「播放/下载」, 抓图可「查看/下载」, 末尾「删除」
+                 下载由浏览器保存到其默认下载目录(不再提供目录选择/默认路径设置) -->
+            <div class="kv" style="margin-top:8px"><span>下载进度</span><b id="dlProg" class="oneline" title="-">-</b></div>
+            <div id="snapList" style="font-size:11px;color:#9fb3c6;margin-top:6px;max-height:180px;overflow:auto"></div>
           </div>
         </div>
 
@@ -341,7 +369,8 @@
             <div id="l-msg" class="hint">未连接 —— 点击下方「连接激光」</div>
             <div class="row"><label>串口</label>
               <select id="l-port" style="flex:1">
-                <option value="/dev/ir_laser">/dev/ir_laser</option>
+                <option value="/dev/ir_laser">/dev/ir_laser (通道01)</option>
+                <option value="/dev/ir_laser2">/dev/ir_laser2 (通道02)</option>
                 <option value="/dev/ttyUSB0">/dev/ttyUSB0</option>
               </select></div>
             <div class="ctl-btns">
@@ -349,6 +378,7 @@
               <button class="sec" id="btnLaserDisc" onclick="laserClose()" disabled>断开串口</button>
             </div>
             <div class="kv"><span>串口状态</span><b id="l-occ">-</b></div>
+            <div class="kv"><span>RS-485 方向</span><b id="l-rts">-</b></div>
             <div class="kv"><span>设备应答</span><b id="l-reply">-</b></div>
             <div id="l-warn" class="hint" style="display:none"></div>
           </div>
@@ -491,24 +521,28 @@ var GW = location.origin;
 ============================================================ */
 var DET = {
   enable: true, manual: true,
-  minTemp: 44.0, delta: 10.0, envTemp: 25.0,
+  /* 阈值口径 = 相机实测温度(°C):
+     minTemp = "最低温度"(绝对阈值, 手动模式);
+     delta   = "温度增量"(自动模式: 环境温度 + 增量);
+     envTemp = 环境温度, 由实测矩阵自动估计(见 estimateEnvTemp), 无需人工输入。
+     旧默认 44/10 属"灰度伪温度"尺度, 已随本次改造作废。 */
+  minTemp: 35.0, delta: 5.0, envTemp: 28.0,
   minAreaPx: 50, minArea: 50, maxSrc: 5,
   grid: true
 };
 var HFOV = 24.2, VFOV = 19.4, IMW = 640, IMH = 512;
 
 /* ============================================================
-   右侧"温度-亮度"色条屏蔽带 (修: 色条被误识别为热源)
+   右侧"温度-亮度"色条屏蔽带 (历史遗留, 现默认关闭)
    ------------------------------------------------------------
-   热像仪画面最右侧有一条约 20px 的标定色条(由浅到深), 其整列亮度较高,
-   二值化后会与真实热源一起进入连通域, 被判为独立热源。
-   实测(640x512 主码流, 阈值 44°C): 色条占 x = 617..637, 连通域 box=(617,y,21,h),
-   面积约 4146px —— 与 Qt 端算法一致, 故在此按"列"整体屏蔽。
-   默认屏蔽最右 24 列; 可用 URL 参数覆盖:  ?barmask=32   (0 = 关闭屏蔽)
+   该屏蔽是为"灰度→伪温度"分割准备的: 伪彩画面最右侧的标定色条亮度高,
+   二值化后会被误判为热源。**现检测已改用相机实测温度矩阵**(矩阵是传感器
+   原始温度, 不含伪彩/色条叠加, 最右列是真实场景), 因此不应再屏蔽 —— 默认 0。
+   如确需(仅在切回伪温度分割时)可用 URL 参数启用:  ?barmask=24
 ============================================================ */
 var BAR_MASK_PX = (function(){
   var m = /[?&]barmask=(\d+)/.exec(location.search);
-  if (!m) return 24;                         /* 默认: 屏蔽最右 24 列 */
+  if (!m) return 0;                          /* 默认: 不屏蔽(实测温度矩阵无需屏蔽) */
   var v = parseInt(m[1], 10);
   return (isNaN(v) || v < 0) ? 0 : v;
 })();
@@ -526,12 +560,84 @@ var LAST_TH_STATS = null;      /* 热像仪分辨率/帧率(不再显示在右�
    热像仪鼠标探针: 仅在鼠标位于热像仪画面内时显示 坐标 + 温度
    ------------------------------------------------------------
    · 画面按 object-fit: contain 显示, 可能带黑边, 需按 contain 几何换算到源像素坐标;
-   · 取像素用独立 1x1 画布, 直接从 <video> 取该点(不依赖检测是否开启, 也不整帧重绘);
-   · 灰度公式与热源检测完全一致: g = (r*11 + g*16 + b*5) >> 5
-     温度换算与检测同源:          温度 = -20 + g/255 * 170
+   · 温度"只"取相机实测: 网关 GET /api/thermal/matrix 周期拉取整幅温度矩阵(二进制),
+     前端本地查表 —— 无 HTTP 往返延迟, 任意像素/目标框都能取到实测温度;
+   · 不再使用本地"灰度->温度"近似值: 热像预览是伪彩(Ironbow2)+自动量程, 灰度与温度
+     并非线性关系, 该近似会把高亮的手(~36°C)算成 100°C 之类的错误值;
+   · 无实测矩阵时探针显示 "--"。
 ============================================================ */
 var TH_PROBE = {active:false, x:-1, y:-1, temp:NaN};
-var _probeCv = null, _probeCtx = null, _probeDrawMs = 0;
+var _probeDrawMs = 0;
+
+/* ---- 相机实测全屏温度矩阵(降采样缓存) ---- */
+var TH_MAT = {w:0, h:0, step:4, data:null, ts:0};
+var _matReqBusy = false, _matReqMs = 0;
+/* 拉取整幅温度矩阵(默认 step=4 -> 160x128, 约 80KB); 节流 200ms + 背压 */
+function fetchThermalMatrix(force){
+  var now = Date.now();
+  if (_matReqBusy) return;
+  if (!force && (now - _matReqMs) < 200) return;
+  _matReqMs = now; _matReqBusy = true;
+  fetch('/api/thermal/matrix?step=4', {cache:'no-store'})
+    .then(function(r){
+      if (!r.ok) throw new Error('http ' + r.status);
+      var w = parseInt(r.headers.get('X-Width') || '0', 10);
+      var h = parseInt(r.headers.get('X-Height') || '0', 10);
+      var st = parseInt(r.headers.get('X-Step') || '4', 10);
+      return r.arrayBuffer().then(function(buf){
+        return {w: w, h: h, step: st, f: new Float32Array(buf)};
+      });
+    })
+    .then(function(o){
+      _matReqBusy = false;
+      if (!o.w || !o.h || o.f.length < o.w * o.h) return;
+      TH_MAT = {w: o.w, h: o.h, step: (o.step || 4), data: o.f, ts: Date.now()};
+      if (TH_PROBE.active){          /* 实测矩阵到达: 立即刷新探针显示值 */
+        var t = matrixTempAt(TH_PROBE.x, TH_PROBE.y);
+        TH_PROBE.temp = (t === null) ? NaN : t;
+        updateThermalProbeLabel();
+        renderThermalOverlay(DET_RESULT);
+      }
+    })
+    .catch(function(){ _matReqBusy = false; });
+}
+/* 全分辨率像素坐标(0..639, 0..511) -> 实测温度(°C); 无矩阵/越界返回 null */
+function matrixTempAt(ix, iy){
+  if (!TH_MAT.data || !TH_MAT.w || !TH_MAT.h) return null;
+  var sx = Math.floor(ix / TH_MAT.step), sy = Math.floor(iy / TH_MAT.step);
+  if (sx < 0 || sy < 0 || sx >= TH_MAT.w || sy >= TH_MAT.h) return null;
+  return TH_MAT.data[sy * TH_MAT.w + sx];
+}
+/* 目标框(全分辨率坐标)内的实测 最大/平均 温度; 无矩阵返回 null */
+function matrixBoxTemp(x0, y0, bw, bh){
+  if (!TH_MAT.data || !TH_MAT.w || !TH_MAT.h) return null;
+  var st = TH_MAT.step;
+  var X0 = Math.max(0, Math.floor(x0 / st));
+  var Y0 = Math.max(0, Math.floor(y0 / st));
+  var X1 = Math.min(TH_MAT.w, Math.ceil((x0 + bw) / st));
+  var Y1 = Math.min(TH_MAT.h, Math.ceil((y0 + bh) / st));
+  if (X1 <= X0 || Y1 <= Y0) return null;
+  var mx = -1e9, sum = 0, n = 0;
+  for (var y = Y0; y < Y1; y++){
+    var base = y * TH_MAT.w;
+    for (var x = X0; x < X1; x++){
+      var t = TH_MAT.data[base + x];
+      if (t > mx) mx = t;
+      sum += t; n++;
+    }
+  }
+  return n ? {max: mx, avg: sum / n} : null;
+}
+/* 环境温度自动估计: 取实测矩阵的低分位数(10%), 抗局部热源干扰 */
+function estimateEnvTemp(md){
+  if (!md || !md.length) return NaN;
+  var stride = Math.max(1, (md.length / 4096) | 0);
+  var s = [];
+  for (var i = 0; i < md.length; i += stride) s.push(md[i]);
+  s.sort(function(a, b){ return a - b; });
+  var k = Math.min(s.length - 1, Math.max(0, Math.floor(s.length * 0.10)));
+  return s[k];
+}
 
 function thermalContainRect(){
   var v = el('v-thermal');
@@ -542,22 +648,6 @@ function thermalContainRect(){
   return {vw: v.videoWidth, vh: v.videoHeight, s: s,
           ox: r.left + (r.width  - v.videoWidth  * s) / 2,
           oy: r.top  + (r.height - v.videoHeight * s) / 2};
-}
-function thermalPixelTemp(ix, iy){
-  var v = el('v-thermal');
-  if (!v || !v.videoWidth) return null;
-  if (!_probeCv){
-    _probeCv = document.createElement('canvas');
-    _probeCv.width = 1; _probeCv.height = 1;
-    _probeCtx = _probeCv.getContext('2d', {willReadFrequently: true});
-  }
-  try {
-    _probeCtx.clearRect(0, 0, 1, 1);
-    _probeCtx.drawImage(v, ix, iy, 1, 1, 0, 0, 1, 1);   /* 只取该像素 */
-    var d = _probeCtx.getImageData(0, 0, 1, 1).data;
-    var gray = (d[0] * 11 + d[1] * 16 + d[2] * 5) >> 5;
-    return -20.0 + gray / 255.0 * 170.0;
-  } catch (e) { return null; }
 }
 function updateThermalProbeLabel(){
   var e = el('probeInfo');
@@ -572,12 +662,13 @@ function onThermalProbeMove(ev){
   var ix = Math.floor((ev.clientX - g.ox) / g.s);
   var iy = Math.floor((ev.clientY - g.oy) / g.s);
   if (ix < 0 || iy < 0 || ix >= g.vw || iy >= g.vh){ onThermalProbeLeave(); return; }
-  var t = thermalPixelTemp(ix, iy);
   TH_PROBE.active = true;
   TH_PROBE.x = ix;
   TH_PROBE.y = iy;
+  var t = matrixTempAt(ix, iy);              /* 相机实测; 无矩阵=null(显示 --) */
   TH_PROBE.temp = (t === null) ? NaN : t;
   updateThermalProbeLabel();
+  fetchThermalMatrix();                       /* 矩阵缺失/过期时拉取, 到达后自动刷新 */
   /* 叠加层重绘节流到 ~20fps(鼠标移动会高频触发) */
   var now = Date.now();
   if (now - _probeDrawMs >= 50){ _probeDrawMs = now; renderThermalOverlay(DET_RESULT); }
@@ -597,6 +688,39 @@ var PC = {}, LAST_OK = null, CUR = null, SNAP = [];
    规则: 任何状态变化都必须经 render* 函数刷新界面, 保证"按钮/文案/画面"三者一致。 */
 var LINK = { thermal:{state:'idle'}, visible:{state:'idle'} };
 var CAM_OK = null;                       /* 相机 ISAPI 是否可达 (null = 未知) */
+/* 相机实测温度矩阵: 热像仪已连接时按 ~200ms 周期拉取, 供探针/热源温度本地查表 */
+setInterval(function(){ if (LINK.thermal.state === 'connected') fetchThermalMatrix(); }, 200);
+
+/* ============================================================
+   相机系统时间校准: 每次连接(热像仪/可见光)后自动校准"两台相机"的时间。
+   网关 GET /api/camera/time/sync?which=both -> ISAPI /ISAPI/System/time 读-改-写。
+   ============================================================ */
+var _timeSyncMs = 0, _timeSyncBusy = false;
+function syncCameraTime(which){
+  var now = Date.now();
+  if (_timeSyncBusy || (now - _timeSyncMs) < 5000) return;   /* 防抖: 5s 内不重复 */
+  _timeSyncMs = now; _timeSyncBusy = true;
+  fetch('/api/camera/time/sync?which=' + (which || 'both'), {cache:'no-store'})
+    .then(function(r){ return r.json(); })
+    .then(function(j){
+      _timeSyncBusy = false;
+      var res = (j && j.results) || {};
+      var parts = [];
+      ['thermal', 'visible'].forEach(function(k){
+        var v = res[k];
+        if (!v) return;
+        var nm = (k === 'thermal' ? '热像仪' : '可见光');
+        if (v.ok){
+          var d = (v.delta_ms === null || v.delta_ms === undefined) ? '' : (' Δ' + v.delta_ms + 'ms');
+          parts.push(nm + 'OK' + d);
+        } else {
+          parts.push(nm + '失败(' + (v.detail || '') + ')');
+        }
+      });
+      log('相机校时: ' + (parts.join(' | ') || '无结果'));
+    })
+    .catch(function(e){ _timeSyncBusy = false; log('相机校时请求失败: ' + e); });
+}
 var REC = {on:false, busy:false};        /* 录像真实状态 + 操作中标志 */
 var TCPBUSY = false;                     /* TCP 服务器启停操作中 */
 
@@ -736,6 +860,16 @@ function findHottest(srcs){
   for (var i = 0; i < srcs.length; i++) if (srcs[i].maxTemp > hot.maxTemp) hot = srcs[i];
   return hot;
 }
+/* 用相机实测温度矩阵按目标框重算 最大/平均 温度, 替换"灰度近似温度"。
+   热源的位置/面积仍由灰度分割决定(不受影响), 这里只修正对外显示的温度。 */
+function remapDetectTemps(srcs){
+  if (!srcs || !srcs.length || !TH_MAT.data) return;
+  for (var i = 0; i < srcs.length; i++){
+    var s = srcs[i];
+    var bt = matrixBoxTemp(s.boundingBoxX, s.boundingBoxY, s.boundingBoxW, s.boundingBoxH);
+    if (bt){ s.maxTemp = bt.max; s.avgTemp = bt.avg; }
+  }
+}
 /* 与 AngleCalculator::calculate() 一致 (注意 Y 轴翻转) */
 function calcAngle(cx, cy, maxTemp){
   var dX = (cx - CXR) * DEG_H;
@@ -756,23 +890,37 @@ function runDetection(){
     if (!DET.enable) renderThermalOverlay(DET_RESULT);
     return;
   }
+  /* 检测温度场 = 相机实测温度矩阵(真实 °C), 以最近邻放大到 640x512。
+     无实测矩阵(未连接/抓取失败)时"检测暂停": 不再用灰度伪温度顶替
+     (伪温度与真实 °C 尺度不同, 用真实阈值去切伪温度会严重误检)。 */
+  if (!TH_MAT.data || !TH_MAT.w || !TH_MAT.h){
+    fetchThermalMatrix();
+    DET_RESULT = {sources: [], target: null, angle: null, threshold: null, sceneMax: null};
+    DET.envTemp = NaN;
+    renderThermalOverlay(DET_RESULT);
+    updateThermalInfo(null);
+    return;
+  }
   var w = IMW, h = IMH;
-  OVG.drawImage(v, 0, 0, w, h);                     /* 热像仪原生 640x512, 无缩放误差 */
-  var data;
-  try { data = OVG.getImageData(0, 0, w, h).data; }
-  catch (e) { return; }                             /* 极端情况下(CORS)直接跳过 */
+  var st = TH_MAT.step, mw = TH_MAT.w, mh = TH_MAT.h, md = TH_MAT.data;
   var n = w * h;
   var temp = new Float32Array(n);
-  for (var i = 0; i < n; i++){
-    var o = i * 4;
-    /* Qt Format_Grayscale8 的整数近似: (R*11 + G*16 + B*5) / 32 */
-    var g = (data[o] * 11 + data[o+1] * 16 + data[o+2] * 5) >> 5;
-    temp[i] = -20.0 + (g / 255.0) * 170.0;          /* 与 updateDetection() 一致 */
+  for (var y = 0; y < h; y++){
+    var sy = (y / st) | 0; if (sy >= mh) sy = mh - 1;
+    var rowBase = sy * mw, outBase = y * w;
+    for (var x = 0; x < w; x++){
+      var sx = (x / st) | 0; if (sx >= mw) sx = mw - 1;
+      temp[outBase + x] = md[rowBase + sx];
+    }
   }
-  var srcs = detect(temp, w, h);
+  DET.envTemp = estimateEnvTemp(md);        /* 环境温度自动估计(低分位数) */
+  var sceneMax = -1e9;                      /* 画面最高温: 便于与阈值对比 */
+  for (var i = 0; i < md.length; i++) if (md[i] > sceneMax) sceneMax = md[i];
+  var srcs = detect(temp, w, h);            /* 阈值 = 环境温度+增量 或 最低温度(均为真实 °C) */
   var hot = findHottest(srcs);
   var ang = hot ? calcAngle(hot.centerX, hot.centerY, hot.maxTemp) : null;
-  DET_RESULT = {sources: srcs, target: hot, angle: ang, threshold: srcs.thresholdUsed};
+  DET_RESULT = {sources: srcs, target: hot, angle: ang,
+                threshold: srcs.thresholdUsed, sceneMax: sceneMax};
   reportDetect(ang, hot);
   renderThermalOverlay(DET_RESULT);
   updateThermalInfo(ang);
@@ -924,8 +1072,11 @@ function updateThermalInfo(ang){
   var dC = document.getElementById('d-cands');
   var dTg = document.getElementById('d-target');
   var dThr = document.getElementById('d-thr');
+  var dEnv = document.getElementById('d-env');
 
   if (dC) dC.textContent = (DET_RESULT.sources || []).length + ' 个';
+  if (dEnv) dEnv.textContent = (typeof DET.envTemp === 'number' && isFinite(DET.envTemp))
+    ? DET.envTemp.toFixed(1) + ' °C' : '-';
   if (dThr) dThr.textContent = (DET_RESULT.threshold !== null &&
                                 DET_RESULT.threshold !== undefined)
     ? DET_RESULT.threshold.toFixed(1) + ' °C' : '-';
@@ -935,7 +1086,9 @@ function updateThermalInfo(ang){
     if (eX) eX.textContent = '--';
     if (eY) eY.textContent = '--';
     if (eD) eD.textContent = '--';
-    if (eT) eT.textContent = '--';
+    /* 无目标时显示"画面最高温", 便于判断是否因阈值高于画面最高温而未检出 */
+    if (eT) eT.textContent = (typeof DET_RESULT.sceneMax === 'number' && isFinite(DET_RESULT.sceneMax))
+        ? DET_RESULT.sceneMax.toFixed(1) + ' °C' : '--';
     if (eP) eP.textContent = '--';
     if (eX) eX.style.cssText = '';
     if (eY) eY.style.cssText = '';
@@ -1214,11 +1367,15 @@ function renderVisibleLink(){
   }
 }
 function renderRec(){
-  var b = el('bRec2');
+  var b = el('bRec2'), s = el('bRecStop');
   if (b){
-    b.disabled = REC.busy;
-    b.textContent = REC.busy ? '处理中…' : (REC.on ? '结束录像' : '开始录像');
+    b.disabled = REC.busy || REC.on;      /* 录像中禁用「开始」 */
+    b.textContent = REC.busy && !REC.on ? '处理中…' : '开始录像';
     b.className = 'warn' + (REC.on ? ' active' : '');
+  }
+  if (s){
+    s.disabled = REC.busy || !REC.on;     /* 未录像时禁用「结束」 */
+    s.textContent = REC.busy && REC.on ? '处理中…' : '结束录像';
   }
   setTxt('sbRec', REC.on ? '录像中' : '空闲');
 }
@@ -1237,9 +1394,11 @@ function renderDetectRun(){
       : (DET.enable ? ((DET_RESULT.sources || []).length + ' 候选') : '已关闭');
   var dm = el('d-mask');
   if (dm){
-    dm.textContent = BAR_MASK_PX > 0
-      ? ('已屏蔽右侧 ' + BAR_MASK_PX + 'px 的"温度-亮度"色条(不参与检测; 加 ?barmask=0 可关闭)')
-      : '温度条屏蔽已关闭(?barmask=0): 画面最右侧色条会被当作热源';
+    dm.textContent = (!TH_MAT.data)
+      ? '无相机实测温度矩阵, 检测暂停(等待 /api/thermal/matrix)'
+      : (BAR_MASK_PX > 0
+          ? ('已屏蔽右侧 ' + BAR_MASK_PX + 'px 色条(?barmask=' + BAR_MASK_PX + ')')
+          : '检测温度场 = 相机实测温度矩阵(真实 °C); 色条屏蔽已关闭(实测矩阵无需屏蔽)');
   }
 }
 function renderLink(kind){ if (kind === 'thermal') renderThermalLink(); else renderVisibleLink(); }
@@ -1289,6 +1448,8 @@ function setStream(name, isRetry){
       LAST_OK = name;
       renderVisibleLink();
       log('可见光已连接 ' + name);
+      /* 每次连接后自动校准两台相机的系统时间(网页端 OSD 时间与录像时间戳一致) */
+      if (LINK.visible.state === 'connected') syncCameraTime('both');
     }).catch(function(e){
       log('连接 ' + name + ' 失败: ' + e);
       /* 直转(H.265)协商/解码失败 -> 自动回落到同档 H.264 兜底流 */
@@ -1315,6 +1476,8 @@ function startThermal(){
       LINK.thermal.state = (pc.connectionState === 'failed') ? 'failed' : 'connected';
       renderThermalLink();
       log('热像仪已连接(视频链路)');
+      /* 每次连接后自动校准两台相机的系统时间 */
+      if (LINK.thermal.state === 'connected') syncCameraTime('both');
     }).catch(function(e){
       LINK.thermal.state = 'failed'; renderThermalLink();
       log('热像仪连接失败: ' + e);
@@ -1343,7 +1506,10 @@ function log(m){
   if (el.textContent.length > 8000) el.textContent = el.textContent.slice(0, 8000);
 }
 function api(path, body){
-  return fetch(GW + path, body === undefined ? {} : {
+  /* 2026-09-24: body 为 undefined **或 null** 都按 GET 处理。
+     原实现只判 undefined, 传 null 会被 JSON.stringify 成 "null" 并以 POST 发出,
+     打到不存在的端点返回 404, 异常又被调用方 catch 掉 -> 页面"什么都不显示"。 */
+  return fetch(GW + path, (body === undefined || body === null) ? {} : {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body)
   }).then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
@@ -1381,6 +1547,10 @@ function ptz(px, py){
   var s = spd();
   api('/api/ptz', {pan:px*s, tilt:py*s, zoom:0, ms:1500})
     .then(function(r){ log('云台 ' + (r.ok?'OK':'失败'+r.http)); });
+}
+function zoomStop(){
+  /* 松开变焦按钮: 停止变焦, 并在当前倍率下自动对焦一次(与本地 Qt 程序一致) */
+  api('/api/ptzstop', {focus_once:true}).then(function(r){ log('停止变焦 -> 当前倍率自动对焦一次'); });
 }
 function ptzStop(){ api('/api/ptzstop', {}).then(function(){ log('停止云台/变焦'); }); }
 function zoom(dir){
@@ -1428,34 +1598,144 @@ function snapshot(){
     renderSnaps();
   });
 }
-function renderSnaps(){
-  var el = document.getElementById('snapList');
-  el.innerHTML = SNAP.slice(0,6).map(function(s){
-    return '<div><a href="'+s.url+'" target="_blank" style="color:#6cc0ff">'+s.file+'</a></div>';
-  }).join('') || '<div style="color:#6f8296">暂无</div>';
-}
-function toggleRec(){
-  if (REC.busy) return;                 /* 防重复点击 */
-  var wasOn = REC.on;                   /* 以网关回传的真实状态为准(不再依赖已移除的 bRec) */
+/* ---- 录像: 开始 / 结束 两个独立动作(2026-09-24) ---- */
+function recStart(){
+  if (REC.busy) return;
+  if (REC.on){ log('已在录像中'); renderRec(); return; }
   REC.busy = true; renderRec();
-  var req = wasOn ? api('/api/record/stop', {})
-                  : api('/api/record/start', {stream: el('recStream').value});
-  req.then(function(r){
-    log('录像' + (wasOn ? '结束' : '开始') + (r.ok ? ': ' + r.detail : '失败: ' + r.detail));
-  }).catch(function(e){ log('录像操作失败: ' + e); })
-    .then(function(){ REC.busy = false; refresh(); });
+  api('/api/record/start', {stream: el('recStream').value}).then(function(r){
+    log('开始录像' + (r.ok ? ': ' + r.detail : ' 失败: ' + r.detail));
+  }).catch(function(e){ log('开始录像失败: ' + e); })
+    .then(function(){ REC.busy = false; refresh(); refreshEvidence(); });
 }
+function recStop(){
+  if (REC.busy) return;
+  if (!REC.on){ log('当前未在录像'); renderRec(); return; }
+  REC.busy = true; renderRec();
+  api('/api/record/stop', {}).then(function(r){
+    log('结束录像' + (r.ok ? ': ' + r.detail : ' 失败: ' + r.detail));
+  }).catch(function(e){ log('结束录像失败: ' + e); })
+    .then(function(){ REC.busy = false; refresh(); refreshEvidence(); });
+}
+function toggleRec(){ REC.on ? recStop() : recStart(); }   /* 兼容旧调用 */
+
+/* ---- 证据文件: 列表 / 播放 / 容量 / 保留天数 ---- */
+function fmtSize(n){
+  n = Number(n) || 0;
+  var u = ['B','KB','MB','GB','TB'], i = 0;
+  while (n >= 1024 && i < u.length-1){ n /= 1024; i++; }
+  return (i === 0 ? n.toFixed(0) : n.toFixed(1)) + u[i];
+}
+function renderEvidence(files, meta){
+  var box = document.getElementById('snapList');
+  if (!box) return;
+  files = files || [];
+  if (!files.length){ box.innerHTML = '<div style="color:#6f8296">暂无录像/抓图</div>'; return; }
+  box.innerHTML = files.map(function(f){
+    var icon = (f.kind === 'video') ? '🎬' : '🖼';
+    var label = (f.kind === 'video') ? '播放' : '查看';
+    return '<div style="display:flex;gap:6px;align-items:center;padding:1px 0">'
+      + '<a href="javascript:void(0)" onclick="openViewer(\'' + f.name + '\',\'' + f.kind + '\',\'' + f.time + '\')" '
+      + 'style="color:#6cc0ff;text-decoration:none" title="点击' + label + '">'
+      + icon + ' ' + f.time + ' · ' + f.name + ' · ' + fmtSize(f.bytes) + ' · ' + label + '</a>'
+      + '<a href="javascript:void(0)" onclick="downloadEvidence(\'' + f.name + '\')" '
+      + 'style="color:#7ee2a8;text-decoration:none;margin-left:auto" title="下载到本机后播放">下载</a>'
+      + '<a href="javascript:void(0)" onclick="deleteEvidence(\'' + f.name + '\')" '
+      + 'style="color:#ff8080;text-decoration:none;margin-left:6px" title="删除">删除</a>'
+      + '</div>';
+  }).join('');
+}
+function openViewer(name, kind, t){
+  var url = '/api/file/' + encodeURIComponent(name);
+  var box = document.getElementById('viewer');
+  var v = document.getElementById('vPlayer'), im = document.getElementById('vImage');
+  document.getElementById('vTitle').textContent = name + '   ' + (t || '');
+  box.style.display = 'flex';
+  if (kind === 'video'){
+    im.style.display = 'none';
+    v.style.display = 'block';
+    v.src = url;                     /* 点击录像文件直接播放(浏览器原生 <video>) */
+    v.onerror = function(){
+      log('浏览器无法播放该视频(4K 主码流为 H.265/HEVC, 多数浏览器不支持): 请点「下载」保存到本机后用本地播放器打开');
+    };
+    v.play().catch(function(){
+      log('自动播放被拦截或编码不受支持; 若黑屏请改用「下载」后本地播放');
+    });
+  } else {
+    v.pause(); v.removeAttribute('src'); v.style.display = 'none';
+    im.style.display = 'block'; im.src = url;
+  }
+  log('打开 ' + name);
+}
+function closeViewer(){
+  var v = document.getElementById('vPlayer');
+  if (v){ v.pause(); v.removeAttribute('src'); v.load && v.load(); }
+  document.getElementById('vImage').removeAttribute('src');
+  document.getElementById('viewer').style.display = 'none';
+}
+function deleteEvidence(name){
+  if (!confirm('删除 ' + name + ' ?')) return;
+  api('/api/evidence/delete', {name:name}).then(function(r){
+    log(r.ok ? ('已删除 ' + name) : ('删除失败: ' + r.detail));
+    refreshEvidence();
+  });
+}
+function refreshEvidence(){
+  api('/api/storage', null).then(function(s){
+    if (!s || !s.ok) return;
+    setTxt('vPath', s.path || '-');
+    setTxt('vDisk', '剩余 ' + (s.disk_free_text || '-') + ' / 总 ' + (s.disk_total_text || '-')
+                    + '  (' + (s.disk_free_pct || 0) + '%)');
+    setTxt('vEvStat', (s.evidence_text || '0B') + ' / ' + (s.video_count || 0) + ' 段录像, '
+                      + (s.file_count || 0) + ' 个文件');
+    var rd = document.getElementById('retDays');
+    if (rd && document.activeElement !== rd) rd.value = (s.retention_days === undefined ? 7 : s.retention_days);
+  }).catch(function(){});
+  api('/api/evidence', null).then(function(r){
+    if (r && r.ok) renderEvidence(r.files, r);
+  }).catch(function(){});
+}
+function saveRetention(){
+  var d = parseInt((document.getElementById('retDays') || {}).value, 10);
+  if (isNaN(d) || d < 0){ log('保留天数无效'); return; }
+  api('/api/retention', {days:d}).then(function(r){
+    log(r.ok ? ('最长保存 ' + d + ' 天已保存; ' + ((r.cleanup||{}).detail || '')) : '保存失败');
+    refreshEvidence();
+  });
+}
+function cleanupNow(){
+  api('/api/cleanup', {}).then(function(r){
+    log('清理结果: ' + ((r && r.detail) || '无'));
+    refreshEvidence();
+  });
+}
+function renderSnaps(){ refreshEvidence(); }     /* 兼容旧调用(抓图后刷新列表) */
+
+function downloadEvidence(name){
+  var url = '/api/file/' + encodeURIComponent(name);
+  var a = document.createElement('a');           /* 兜底: 浏览器默认下载目录 */
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ a.remove(); }, 1000);
+  setTxt('dlProg', '已发起浏览器下载: ' + name);
+  log('已发起下载: ' + name + ' (由浏览器保存到其默认下载目录)');
+}
+
+setTimeout(refreshEvidence, 900);
+setInterval(refreshEvidence, 5000);
 
 /* ============================================================
    检测参数读写
 ============================================================ */
+/* 温度控件显示格式: 保留 1 位小数(如 28.4 / 5.2 / 0.2 / 110.9), 控件宽度已保证至少 3 个字符 */
+function fmt1(v){ v = parseFloat(v); return (isFinite(v) ? v : 0).toFixed(1); }
 function loadDetect(){
   api('/api/detect').then(function(d){
     if (!d.ok){ log('读取检测参数失败'); return; }
     document.getElementById('d-enable').value = d.enable_detection || 'true';
     document.getElementById('d-manual').value = d.manual_mode || 'true';
-    document.getElementById('d-mintemp').value = d.min_temp || '44';
-    document.getElementById('d-delta').value = d.temp_threshold_delta || '10.0';
+    document.getElementById('d-mintemp').value = fmt1(parseFloat(d.min_temp) || 35);
+    document.getElementById('d-delta').value = fmt1(parseFloat(d.temp_threshold_delta) || 5);
     document.getElementById('d-minarea').value = d.min_area_pixels || '50';
     document.getElementById('d-maxsrc').value = d.max_sources || '5';
     document.getElementById('d-grid').value = d.grid || 'true';
@@ -1466,12 +1746,22 @@ function loadDetect(){
 function syncDetFromUi(){
   DET.enable  = document.getElementById('d-enable').value === 'true';
   DET.manual  = document.getElementById('d-manual').value === 'true';
-  DET.minTemp = parseFloat(document.getElementById('d-mintemp').value) || 44;
-  DET.delta   = parseFloat(document.getElementById('d-delta').value) || 10;
+  DET.minTemp = parseFloat(document.getElementById('d-mintemp').value);
+  if (!isFinite(DET.minTemp)) DET.minTemp = 35;
+  DET.delta   = parseFloat(document.getElementById('d-delta').value);
+  if (!isFinite(DET.delta)) DET.delta = 5;
+  /* 温度控件统一保留 1 位小数显示 */
+  document.getElementById('d-mintemp').value = fmt1(DET.minTemp);
+  document.getElementById('d-delta').value = fmt1(DET.delta);
   DET.minAreaPx = parseInt(document.getElementById('d-minarea').value) || 50;
   DET.minArea   = DET.minAreaPx;
   DET.maxSrc  = parseInt(document.getElementById('d-maxsrc').value) || 5;
   DET.grid    = document.getElementById('d-grid').value === 'true';
+  /* 模式互斥: 自动模式用"环境温度 + 温度增量"; 手动模式用"最低温度" —— 另一项置灰提示不生效 */
+  var mEl = document.getElementById('d-mintemp');
+  var dEl = document.getElementById('d-delta');
+  if (mEl) mEl.disabled = !DET.manual;
+  if (dEl) dEl.disabled = DET.manual;
   renderDetectRun();                 /* 启用/关闭 立即反映到状态栏与提示 */
 }
 function saveDetect(){
@@ -1812,6 +2102,13 @@ function applyLaserUi(st){
   var occ = document.getElementById('l-occ');
   if (occ) occ.textContent = o ? '已打开(本网关)'
                               : (c ? '未打开(可连接)' : '被本地程序占用');
+  /* RS-485 方向控制状态(与本地程序 IRLaser 一致: 发送拉 RTS, 空闲切回接收) */
+  var rts = document.getElementById('l-rts');
+  if (rts){
+    rts.textContent = (st.rs485_rts === undefined) ? '-'
+                    : (st.rs485_rts ? ('RTS 方向控制' + (st.rs485_active_low ? '(反相)' : ''))
+                                    : '未启用');
+  }
   /* 设备应答闭环: 串口可开 ≠ 设备在线, 用最近一次下发/查询是否有回读数据判定 */
   if (st.replied !== undefined) LS.replied = st.replied;
   var rep = document.getElementById('l-reply');
@@ -1879,7 +2176,7 @@ function laserOn(){
   if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
   _lastCmdAt = Date.now();
   api('/api/laser/on', {}).then(function(r){
-    LS.replied = !!r.ok;
+  /* 控制指令该型号不应答: 不据此判定在线, 由 /api/laser/status 的查询探测给出 */
     if (r.ok){ LS.on = true; paintLaser(); applyLaserUi(LS); lmsg('已开启激光', true); }
     else { applyLaserUi(LS); lmsg('开启失败: ' + r.detail, false); }
   }).catch(function(e){ lmsg('开启失败: ' + e, false); });
@@ -1888,7 +2185,7 @@ function laserOff(){
   if (!LS.opened){ lmsg('请先点「连接激光」', false); return; }
   _lastCmdAt = Date.now();
   api('/api/laser/off', {}).then(function(r){
-    LS.replied = !!r.ok;
+  /* 控制指令该型号不应答: 不据此判定在线, 由 /api/laser/status 的查询探测给出 */
     if (r.ok){ LS.on = false; paintLaser(); applyLaserUi(LS); lmsg('已关闭激光', true); }
     else { applyLaserUi(LS); lmsg('关闭失败: ' + r.detail, false); }
   }).catch(function(e){ lmsg('关闭失败: ' + e, false); });
@@ -1907,7 +2204,7 @@ function laserAngStep(dir){
   }
   var pos = angleToPos(tgt);
   api('/api/laser/position', {pos: pos}).then(function(r){
-    LS.replied = !!r.ok;
+  /* 控制指令该型号不应答: 不据此判定在线, 由 /api/laser/status 的查询探测给出 */
     if (!r.ok){ applyLaserUi(LS); lmsg('光斑角度失败: ' + r.detail, false); return; }
     LS.ang = tgt; LS.pos = pos; paintLaser(); applyLaserUi(LS);
     lmsg('光斑角度 -> ' + tgt.toFixed(2) + '° (位置 ' + pos + ')', true);
@@ -1934,7 +2231,7 @@ function laserBriStep(dir){
     return;
   }
   api('/api/laser/brightness', {level: tgt}).then(function(r){
-    LS.replied = !!r.ok;
+  /* 控制指令该型号不应答: 不据此判定在线, 由 /api/laser/status 的查询探测给出 */
     if (!r.ok){ applyLaserUi(LS); lmsg('亮度失败: ' + r.detail, false); return; }
     LS.bri = tgt; paintLaser(); applyLaserUi(LS);
     lmsg('亮度 -> ' + tgt + '/255', true);
@@ -1951,7 +2248,7 @@ function laserBriStop(){
 }
 function laserReset(){
   api('/api/laser/reset', {}).then(function(r){
-    LS.replied = !!r.ok;
+  /* 控制指令该型号不应答: 不据此判定在线, 由 /api/laser/status 的查询探测给出 */
     applyLaserUi(LS);
     lmsg('电机复位: ' + (r.ok ? 'ok' : r.detail), !!r.ok);
     setTimeout(laserQuery, 900);
@@ -2011,4 +2308,15 @@ setInterval(function(){
 }, 2500);
 
 </script>
+<div id="viewer" style="display:none;position:fixed;left:0;top:0;width:100%;height:100%;
+     background:rgba(0,0,0,.88);z-index:9999;align-items:center;justify-content:center">
+  <div style="max-width:94%;max-height:94%">
+    <div id="vTitle" style="color:#cfe3f5;font-size:12px;margin-bottom:6px">-</div>
+    <video id="vPlayer" controls autoplay style="display:none;max-width:90vw;max-height:78vh;background:#000"></video>
+    <img id="vImage" style="display:none;max-width:90vw;max-height:78vh;background:#000">
+    <div style="margin-top:6px;text-align:right">
+      <button class="sec" onclick="closeViewer()">关闭</button>
+    </div>
+  </div>
+</div>
 </body></html>
